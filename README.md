@@ -63,7 +63,7 @@ The following summarizes the best practices we should already teach for expressi
 
 ## gc_heap and gc_ptr
 
-`gc_heap` encapsulates memory containing objects accessed via `gc_ptr<T>`.
+`gc_heap` encapsulates memory containing objects that can be safely accessed via `gc_ptr<T>`.
 
 - `collect()` is local: It traces only GC-allocated objects, and only this `gc_heap`.
 
@@ -77,9 +77,9 @@ The following summarizes the best practices we should already teach for expressi
 
    - The current collector implementation stores the following data:
 
-      - Per nontrivially destructible object, stores two pointers: {T* obj, void (*dtor)(void*)}.
+      - Per individual nontrivially destructible object, stores two pointers: {T* obj, void (*dtor)(const void*)}.
 
-      - Per array of nontrivially destructible objects, stores two pointers plus the number of objects.
+      - Per array of nontrivially destructible objects, stores two pointers plus the number of objects: : {T* obj, size_t num, void (*dtor)(const void*)}.
 
       - Per type, usually stores one 1-instruction dtor wrapper: Clang -O1 generates a function containing just *jmp*, Clang -O2 inlines the destructor entirely where that’s usual.
 
@@ -99,34 +99,38 @@ The following summarizes the best practices we should already teach for expressi
 
 ## atomic_gc_ptr
 
-`atomic_gc_ptr` is designed to be safe for lock-free use, and have its uses be lock-free.
+`atomic_gc_ptr` is designed to be thread-safe for concurrent use, and have its uses be lock-free.
 
-- Remember that construction and destruction are special: We never need to think about races on an object in the object’s constructor or destructor.
+- Remember that construction and destruction are special: We never need to think about races on an object in the object’s constructor or destructor. So `gc_ptr`'s additional registration actions during construction and destruction don't matter for concurrency safety of `gc_ptr` (they do matter for concurrency safety of `gc_heap`). 
 
 - Atomic operations (e.g., `compare_exchange`) operate on existing objects, just like assignment. Because `gc_ptr<T>` wraps a `T*` with trivial assignment, it makes it easy to let `atomic_gc_ptr<T>` wrap `atomic<T*>` and expose `compare_exchange` etc.
 
 
 ## gc_allocator (speculative)
 
-**Note: Not a primary target use case.** `gc_allocator` is an experiment to wrap a `gc_heap` up as a C++11 allocator. It appears to work with unmodified current STL containers, but I'm still exploring how well and exploring the limits. Note that `gc_allocator` requires C++11 allocator support for fancy pointers; on MSVC, it requires Visual Studio 2015 Update 3 or greater.
+**Note: Not a primary target use case.** 
 
-- `deallocate()` is a no-op, but performs checking in debug builds. It does not need to actually deallocate because deallocation will happen at the next `.collect()` after the memory becomes unreachable.
+`gc_allocator` is an experiment to wrap a `gc_heap` up as a C++11 allocator. It appears to work with unmodified current STL containers, but I'm still exploring how well and exploring the limits. Note that `gc_allocator` requires C++11 allocator support for fancy pointers; on MSVC, it requires Visual Studio 2015 Update 3 or greater.
 
-- `destroy()` is a no-op, but perform checking in debug builds. It does not need to remember the destructor because that was already recorded when `construct()` was called; see next point. It does not need to call the destructor because the destructor will be called when the object is unreachable (or, for `vector` only, when the container in-place constructs a new object in the same location; see next subpoint).
+- `deallocate()` is a no-op, but performs checking in debug builds. It does not need to actually deallocate because memory-safe deallocation will happen at the next `.collect()` after the memory becomes unreachable.
 
-- The in-place `construct()` function remembers the correct destructor if needed, which is only if the object has a nontrivial destructor.
+- `destroy()` is a no-op, but perform checking in debug builds. It does not need to remember the destructor because that was already correctly recorded when `construct()` was called; see next point. It does not need to call the destructor because the destructor will be called type-safely when the object is unreachable (or, for `vector` only, when the container in-place constructs a new object in the same location; see next subpoint).
+
+- The in-place `construct()` function remembers the type-correct destructor -- if needed, which means only if the object has a nontrivial destructor.
 
    - `construct()` is available via `gc_allocator` only, and adds special sauce for handling `vector::pop_back` followed by `push_back`: A pending destructor is also run before constructing an object in a location for which the destructor is pending. This is the only situation where a destructor runs other than at `.collect()` time, and only happens when using `vector<T, gc_allocator<T>>`.
    
-   - Note: To my knowledge, this is the only gcpp operation that could be abused type-unsafely, without resorting to `reinterpret_cast`ing `gc_ptr`s. We assume the container implementation is not malicious.
+   - Note: We assume the container implementation is not malicious. To my knowledge, `gc_allocator::construct()` is the only operation in gcpp that could be abused in a type-unsafe way, ignoring code that resorts to undefined behavior like `reinterpret_cast`ing `gc_ptr`s.
 
-- `container<T, gc_allocator<T>>` iterators keep object (not just memory) alive.
+- `container<T, gc_allocator<T>>` iterators keep objects (not just memory) alive. This makes dereferencing an invalidated iterator type-safe, as well as memory-safe.
 
-   - The iterator stores `gc_ptr`, which makes the iterator a strong owner. Turns an undefined behavior problem into stale data problem.
+   - The iterator stores `gc_ptr`, which makes the iterator a strong owner. When dereferencing invalidated iterators, this turns an undefined behavior problem into "just" a stale data problem.
 
-   - For all containers, an invalidated iterator points to a valid object. However, the object may have a different value, including being in a moved-from state; also, reading the object via the invalidated iterator is not guaranteed to see changes made to the container, and vice versa.
+   - For all random access iterators that use pointer arithmetic, any use of an iterator to navigate beyond the end of the allocation that the iterator actually points into will fire an assert in debug builds.
 
-   - For a node-based container or `deque`, an invalidated iterator could still navigate to other erased/current nodes that the erased node happens to be pointing to, if the container did not change the logically-deleted node in a way that breaks its iterator increment/decrement logic. Note: This is not guaranteed to work, but appears to work in practice in the `set` implementations I've tried so far.
+   - For all containers, an invalidated iterator points to a valid object. Note that the object may have a different value than the (buggy) program expects, including that it may be in a moved-from state; also, reading the object via the invalidated iterator is not guaranteed to see changes made to the container, and vice versa.
 
-   - For a `vector`, any use of an iterator to navigate beyond the end of the allocation that the iterator actually points into will fire an assert in debug builds. An invalidated iterator will keep an outgrown-and-discarded `vector` buffer alive and can still be compared correctly with other iterators into the same actual buffer (i.e., iterators of the same vintage == when the vector had the same capacity). In particular, an invalidated iterator obtained before the vector's last expansion cannot be correctly compared to the vector's current `.begin()` or `.end()`, and loops that do that with an invalidated iterator will fire an assert in debug builds.
+   - For a node-based container or `deque`, an invalidated iterator could still navigate to other erased/current nodes that the erased node happens to be pointing to, as long as the container implementation did not change the logically-deleted node in a way that breaks its iterator increment/decrement logic. Note: This is not guaranteed to work, but appears to work in practice in the node-based container implementations I've tried so far.
+
+   - For a `vector`, an invalidated iterator will keep an outgrown-and-discarded `vector` buffer alive and can still be compared correctly with other iterators into the same actual buffer (i.e., iterators of the same vintage == when the container had the same capacity). In particular, an invalidated iterator obtained before the `vector`'s last expansion cannot be correctly compared to the `vector`'s current `.begin()` or `.end()`, and loops that do that with an invalidated iterator will fire an assert in debug builds (because they perform `gc_ptr` checked pointer arithmetic).
 
