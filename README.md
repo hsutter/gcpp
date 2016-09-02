@@ -31,23 +31,25 @@ The first target use case is automatic by-construction memory management for dat
 
 ### 2. atomic_gc_ptr for lock-free data structures (with or without cycles)
 
-The second target use case is to support scalable and concurrent lock-free data structures that encounter ABA and deletion problems and cannot be written efficiently or at all in portable Standard C++ today. As a litmus test: If a lock-free library today resorts to hazard pointers or transactional memory to solve ABA and deletion problems, it is probably a candidate for using `atomic_gc_ptr` instead.
+The second target use case is to support scalable and concurrent lock-free data structures that encounter ABA and deletion problems and cannot be written efficiently or at all in portable Standard C++ today. As a litmus test: If a lock-free library today resorts to [hazard pointers](https://en.wikipedia.org/wiki/Hazard_pointer) or transactional memory to solve [ABA and deletion problems](https://en.wikipedia.org/wiki/ABA_problem), it is probably a candidate for using `atomic_gc_ptr` instead.
 
-- Acyclic example: A lock-free queue that supports both traversal and node deletion. (Note: C++17 `atomic_shared_ptr`, also written by me, also addresses this problem. However, making it truly lock-free requires at least some additional complexity in the implementation; thanks to Anthony Williams for contributing implementation experience with `atomic_shared_ptr` including demonstrating a lock-free implementation. Finally, some experts still question its lock-free property.)
+- Acyclic example: A lock-free queue that supports both traversal and node deletion. (Note: C++17 `atomic_shared_ptr`, also written by me, also addresses this problem. But making it truly lock-free requires at least some additional complexity in the implementation; thanks to Anthony Williams for [contributing discussion and implementation experience with `atomic_shared_ptr`](https://www.justsoftwaresolutions.co.uk/threading/why-do-we-need-atomic_shared_ptr.html) including demonstrating a lock-free implementation in [Just::Thread v.2.2](http://www.stdthread.co.uk/). However, some experts still question its lock-free property.)
 
 - Cyclic example: A lock-free graph that can contain cycles.
 
-### Possible bonus use case (speculative): gc_allocator for STL containers 
+### (speculative) Possible bonus use case: gc_allocator for STL containers 
 
-Finally, `gc_allocator` wraps up a `gc_heap` as an STL allocator. This was not an original use case, and is not a primary target, but it's an interesting case to explore because it might just fall out once a `gc_heap` abstraction is available and it may have some interesting properties.
+Finally, `gc_allocator` wraps up a `gc_heap` as an STL allocator. This was not an original use case, and is not a primary target at the moment, but it's an interesting case to explore because it might just fall out once a `gc_heap` abstraction is available and it may have some interesting properties that are useful for safer use of STL in domains where allowing iterator dereference errors to have undefined behavior is not tolerable.
 
-- When using a `container<T, gc_allocator<T>>`, iterators can’t dangle (point to a destroyed or deallocated object) because they keep objects alive. This turns dereferencing an invalidated iterator from an undefined behavior problem into (mostly) a stale data problem.
+- When using a `container<T, gc_allocator<T>>`, iterators can’t dangle (point to a destroyed or deallocated object) because iterators keep objects alive. This turns dereferencing an invalidated iterator from an undefined behavior problem into a stale data problem.
 
 - See notes below for limitations on iterator navigation using invalidated iterators.
 
-- Note: `gc_allocator` relies on C++11's allocator extensions to support "fancy" user-defined pointer types. It does not work with pre-C++11 standard libraries, which required `allocator::pointer` to be a raw pointer type. If you are using Microsoft Visual C++, the current implementation requires MSVC 2015 Update 3; it does not work on Update 2 which did not yet have enough fancy pointer support.
+- Note: `gc_allocator` relies on C++11's allocator extensions to support "fancy" user-defined pointer types. It does not work with pre-C++11 standard libraries, which required `allocator::pointer` to be a raw pointer type. If you are using Microsoft Visual C++, the current implementation of gcpp requires Visual Studio 2015 Update 3 (or later); it does not work on Update 2 which did not yet have enough fancy pointer support.
 
-## Usage guidance: C++17 and the gcpp library
+## Object lifetime guidance: For C++17 and for the gcpp library
+
+The following summarizes the best practices we should already teach for expressing object lifetimes in C++17, and at the end adds a potential new fallback option to consider gcpp.
 
 | Guidance / library | What it automates | Efficiency | Clarity and correctness |
 |--------------------|-------------------|------------|-------------------------|
