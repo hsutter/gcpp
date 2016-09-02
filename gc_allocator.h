@@ -55,13 +55,13 @@ namespace gcpp {
 		}
 
 		template <class U, class ...Args>
-		void construct(const gc_ptr<U>& p, Args&& ...args) 
+		void construct(U* p, Args&& ...args) 
 		{
 			gc().construct(p, std::forward<Args>(args)...);
 		}
 
 		template <class U>
-		void destroy(const gc_ptr<U>& p) noexcept 
+		void destroy(U* p) noexcept
 		{
 			gc().destroy(p);
 		}

@@ -104,14 +104,14 @@ namespace gcpp {
 			std::vector<bool> 			live_starts;	// for tracing
 			std::vector<nonroot>		gc_ptrs;		// known gc_ptrs in this page
 
-			//	Construct a page tuned to hold Hint objects,
-			//	big enough for at least 2 Hint objects (but at least 1024B),
+			//	Construct a page tuned to hold Hint objects, big enough for
+			//	at least 1 + phi ~= 2.62 of these requests (but at least 1024B),
 			//	and a tracking min_alloc chunk sizeof(Hint) (but at least 4 bytes).
 			//	Note: Hint used only to deduce size/alignment.
 			//
 			template<class Hint>
-			gcpage(const Hint* /*--*/)
-				: page{ std::max<size_t>(sizeof(Hint) * 2, 1024), 
+			gcpage(const Hint* /*--*/, size_t n)
+				: page{ std::max<size_t>(sizeof(Hint) * n * 2.62, 1024), 
 						std::max<size_t>(sizeof(Hint), 4) }
 				, live_starts(page.locations(), false)
 			{ }
@@ -191,7 +191,7 @@ namespace gcpp {
 		}
 
 		template<class T> 
-		void destroy(gc_ptr<T>& p) noexcept;
+		void destroy(T* p) noexcept;
 		
 		bool destroy_objects(byte* start, byte* end);
 
@@ -657,7 +657,7 @@ namespace gcpp {
 		//	... allocating another page if necessary
 		if (p == nullptr) {
 			//	pass along the type hint for size/alignment
-			pages.emplace_back((T*)nullptr);
+			pages.emplace_back((T*)nullptr, n);
 			p = pages.back().page.allocate<T>(n);
 		}
 
@@ -723,7 +723,7 @@ namespace gcpp {
 	}
 
 	template<class T>
-	void gc_heap::destroy(gc_ptr<T>& p) noexcept 
+	void gc_heap::destroy(T* p) noexcept 
 	{
 		assert(
 			(p == nullptr
@@ -869,8 +869,9 @@ namespace gcpp {
 				if (i % 8 == 7) { std::cout << ' '; }
 				if (i % 64 == 63) { std::cout << "\n     "; }
 			}
+			std::cout << "\n     ";
 		}
-		std::cout << "\n\n";
+		std::cout << "\n";
 //#endif
 
 		//	We have now marked every allocation to save, so now

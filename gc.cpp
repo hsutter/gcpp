@@ -26,23 +26,49 @@ using namespace gcpp;
 #include <vector>
 #include <set>
 #include <array>
+#include <chrono>
 using namespace std;
 
-struct widget {
-	char filler;
 
-	widget() {
-		cout << "+widget " << sizeof(widget) << "\n";
+#define TOTALLY_ORDERED_COMPARISON(Type) \
+bool operator==(const Type& that) const { return compare(that) == 0; } \
+bool operator!=(const Type& that) const { return compare(that) != 0; } \
+bool operator< (const Type& that) const { return compare(that) <  0; } \
+bool operator<=(const Type& that) const { return compare(that) <= 0; } \
+bool operator> (const Type& that) const { return compare(that) >  0; } \
+bool operator>=(const Type& that) const { return compare(that) >= 0; }
+
+
+struct widget {
+	long v;
+
+	widget(long value = 0) 
+		: v{ value }
+	{
+#ifndef NDEBUG
+		cout << "+widget " << v << "\n";
+#endif
 	}
 
-	widget(const widget&) {
-		cout << "+widget (copy)\n";
+	widget(const widget& that) 
+		: v{ that.v }
+	{
+#ifndef NDEBUG
+		cout << "+widget (copy " << v<< ")\n";
+#endif
 	}
 
 	~widget() {
-		filler = 0; // just to make this a nontrivial dtor
-		cout << "-widget\n";
+#ifndef NDEBUG
+		cout << "-widget " << v<< "\n";
+#endif
 	}
+
+	operator long() const { return v; }
+
+	// (grump) this is the right way to do totally ordered comparisons, it ought to be standard and default
+	int compare(const widget& that) const { return v < that.v ? -1 : v == that.v ? 0 : 1; };
+	TOTALLY_ORDERED_COMPARISON(widget);
 };
 
 struct node {
@@ -77,67 +103,6 @@ void test_page() {
 	g.debug_print();
 }
 
-void test_vector() {
-	vector<int> v;
-	cout << v.capacity() << " ";
-
-	int i = 0;
-	size_t last_capacity = 0;
-	while (++i < 256) {
-		v.push_back(i);
-		if (last_capacity != v.capacity())
-			cout << v.capacity() << " ";
-		last_capacity = v.capacity();
-	}
-	cout << '\n';
-}
-
-void test_std_allocator() {
-	const size_t MaxSize = 32;
-	array<int, MaxSize> sizes = { 0 };
-	array<void*, 50> addr;
-	allocator<int> a;
-
-	for (int size = 0; size < MaxSize; ++size) {
-
-		for (int i = 0; i < 50; ++i) {
-			addr[i] = (void*)a.allocate(size + 1);
-		}
-
-		//for (auto x : addr)
-		//	cout << x << '\n';
-		//cout << '\n';
-
-		std::sort(std::begin(addr), std::end(addr));
-
-		void* prev = nullptr;
-		int least = 99999;
-		for (auto x : addr) {
-			auto delta = (int)((char*)x - (char*)prev);
-			least = std::min(least, delta);
-			//cout << x << " - " << delta << " " << least << '\n';
-			prev = x;
-		}
-		//cout << '\n';
-
-		sizes[size] = least;
-	}
-
-	for (int size = 0; size < MaxSize; ++size) {
-		cout << "allocate(" << (size + 1) << ") allocated " << sizes[size] << " bytes\n";
-	}
-}
-
-//void test_gpage_allocator() {
-//	vector<int, gpage_allocator<int>> v;
-//	page.debug_print();
-//
-//	for (int i = 0; i < 10; ++i) {
-//		v.push_back(1);
-//		page.debug_print();
-//	}
-//}
-
 void test_gc() {
 	vector<gc_ptr<int>> v;
 	vector<gc_ptr<array<char, 10>>> va;
@@ -160,22 +125,29 @@ void test_gc() {
 
 	auto x = make_gc<node>();
 	x->plugh = make_gc<node>();
-	x->plugh->xyzzy = x; // cycle time!
-	x = nullptr;
+	x->plugh->xyzzy = x; // make a cycle
+	x = nullptr;		// now the cycle is unreachable
 
 	gc().debug_print();
 
-	gc().collect();
+	gc().collect();		// collects the cycle
 
 	gc().debug_print();
+}
 
-	//gc().collect();
+void test_gc_allocator() {
 
-	//gc().debug_print();
+	using X = std::allocator_traits<gc_allocator<int>>;
+	gc_allocator<int> x;
+
+	auto p = X::allocate(x, 1);
+	X::construct(x, p.get(), 1);
+	X::destroy(x, p.get());
+	X::deallocate(x, p, 1);
 }
 
 void test_gc_allocator_set() {
-	set<int, less<int>, gc_allocator<int>> s;
+	set<widget, less<widget>, gc_allocator<widget>> s;
 	s.insert(2);
 	s.insert(1);
 	s.insert(3);
@@ -188,16 +160,37 @@ void test_gc_allocator_set() {
 						// is unreachable from within the tree but reachable from i
 
 	gc().collect();
-	gc().debug_print();	// the erased node is still there, because iter kept it alive
+	gc().debug_print();	// the erased node is still there, because i kept it alive
 
-	cout << "i -> (" << *i << ")\n";
-	++i;
-	cout << "i -> (" << *i << ")\n";
-	i = s.begin();	// now make the iterator point back into the container, makin the erased node unreachable
-	cout << "i -> (" << *i << ")\n";
+	cout << "i -> (" << *i << ")\n";	// i points to 1
+	++i;								// navigate -- to node that used to be the right child
+	cout << "i -> (" << *i << ")\n";	// which is 2, we've navigated back into the tree
+
+	i = s.begin();	// now make the iterator point back into the container, making the erased node unreachable
 
 	gc().collect();
 	gc().debug_print();	// now the erased node is deleted (including correctly destroyed)
+}
+
+template<class Set, int N>
+void time_set() {
+	Set s;
+	auto start = std::chrono::high_resolution_clock::now();
+	for (int i = 0; i < N; ++i)
+		s.insert(i);
+	auto end = std::chrono::high_resolution_clock::now();
+	cout << typeid(Set).name() << " time: "
+		<< std::chrono::duration<double, std::milli>(end - start).count()
+		<< "ms\n";
+}
+
+void time_gc_allocator_set() {
+	constexpr int N = 10;
+	time_set<set<int>, N>();
+	time_set<set<int, less<int>, gc_allocator<int>>, N>();
+	gc().debug_print();
+	gc().collect();
+	gc().debug_print();
 }
 
 void test_gc_allocator_vector() {
@@ -233,6 +226,27 @@ void test_gc_allocator_vector() {
 						// (this happens automatically inside construct())
 }
 
+template<class Vec, int N>
+void time_vec() {
+	Vec v;
+	auto start = std::chrono::high_resolution_clock::now();
+	for (int i = 0; i < N; ++i)
+		v.push_back(i);
+	auto end = std::chrono::high_resolution_clock::now();
+	cout << typeid(Vec).name() << " time: "
+		<< std::chrono::duration<double, std::milli>(end - start).count()
+		<< "ms\n";
+}
+
+void time_gc_allocator_vector() {
+	constexpr int N = 1000;
+	time_vec<vector<int>, N>();
+	time_vec<vector<int, gc_allocator<int>>, N>();
+	gc().debug_print();
+	gc().collect();
+	gc().debug_print();
+}
+
 void test_gc_array() {
 	vector<gc_ptr<widget>> v;
 
@@ -250,22 +264,22 @@ void test_gc_array() {
 
 	gc().debug_print();
 
-	//p = nullptr;
-	//gc().collect();
+	v.erase(v.begin()+2);
 
-	//gc().debug_print();
+	gc().collect();
+	gc().debug_print();
 
 }
 
 
 int main() {
 	//test_page();
-	//test_vector();
-	//test_std_allocator();
-	//test_gpage_allocator();
 	//test_gc();
+	//test_gc_allocator();
 	test_gc_allocator_set();
+	//time_gc_allocator_set();
 	//test_gc_allocator_vector();
+	//time_gc_allocator_vector();
 	//test_gc_array();
 }
 

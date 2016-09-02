@@ -53,7 +53,7 @@ Finally, `gc_allocator` wraps up a `gc_heap` as an STL allocator. This was not a
 
 Today, deadline-driven code must either avoid manipulating `shared_ptr`s or take defensive measures:
 
-- Banning pointer assignment or destruction entirely in deadline-driven code, such as by deferring the pointer assignment until after the end of the critical code region, is not always an option because the code may need to change which object a pointer refers to while still inside the critical region.
+- Banning `shared_ptr` assignment or destruction entirely in deadline-driven code, such as by deferring the pointer assignment until after the end of the critical code region, is not always an option because the code may need to change which object a pointer refers to while still inside the critical region.
 
 - Bounding the number of objects reachable from a `shared_ptr` can make the assignment cost have an upper bound to fit within the deadline, but requires ongoing care during maintenance. Adding an additional object, or changing the cost of a destructor, can exceed the bound.
 
