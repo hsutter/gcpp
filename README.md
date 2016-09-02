@@ -29,9 +29,9 @@ The first target use case is automatic by-construction memory management for dat
 
 - In C++17, both examples can be partly automated (e.g., having `Graph` contain a `vector<unique_ptr<Node>> my_nodes;` so that all nodes are guaranteed to be destroyed at least when the `Graph` is destroyed), but require at minimum manual liveness tracing today (e.g., traversal logic to discover unreachable `Node` objects, which essentially implements a tracing collection algorithm by hand for the nodes, and then `my_nodes.erase(unreachable_node);` to remove each unreachable node which is manual and morally equivalent to `delete unreachable_node;`).
 
-### 2. atomic_gc_ptr for lock-free data structures (with or without cycles)
+### 2. atomic_gc_ptr for lock-free concurrent data structures (with or without cycles)
 
-The second target use case is to support scalable and concurrent lock-free data structures that encounter ABA and deletion problems and cannot be written efficiently or at all in portable Standard C++ today. As a litmus test: If a lock-free library today resorts to [hazard pointers](https://en.wikipedia.org/wiki/Hazard_pointer) or transactional memory to solve [ABA and deletion problems](https://en.wikipedia.org/wiki/ABA_problem), it is probably a candidate for using `atomic_gc_ptr` instead.
+The second target use case is to support scalable and concurrent lock-free concurrent data structures that encounter ABA and deletion problems and cannot be written efficiently or at all in portable Standard C++ today. As a litmus test: If a lock-free library today resorts to [hazard pointers](https://en.wikipedia.org/wiki/Hazard_pointer) or transactional memory to solve [ABA and deletion problems](https://en.wikipedia.org/wiki/ABA_problem), it is probably a candidate for using `atomic_gc_ptr` instead.
 
 - Acyclic example: A lock-free queue that supports both traversal and node deletion. (Note: C++17 `atomic_shared_ptr`, also written by me, also addresses this problem. But making it truly lock-free requires at least some additional complexity in the implementation; thanks to Anthony Williams for [contributing discussion and implementation experience with `atomic_shared_ptr`](https://www.justsoftwaresolutions.co.uk/threading/why-do-we-need-atomic_shared_ptr.html) including demonstrating a lock-free implementation in [Just::Thread v.2.2](http://www.stdthread.co.uk/). However, some experts still question its lock-free property.)
 
@@ -47,6 +47,20 @@ Finally, `gc_allocator` wraps up a `gc_heap` as an STL allocator. This was not a
 
 - Note: `gc_allocator` relies on C++11's allocator extensions to support "fancy" user-defined pointer types. It does not work with pre-C++11 standard libraries, which required `allocator::pointer` to be a raw pointer type. If you are using Microsoft Visual C++, the current implementation of gcpp requires Visual Studio 2015 Update 3 (or later); it does not work on Update 2 which did not yet have enough fancy pointer support.
 
+### Other use cases
+
+**Real time systems.** Using `shared_ptr` can be problematic in real time systems code, because any simple `shared_ptr` pointer assignment (or destruction) could cause an arbitrary number of objects to be destroyed, and therefore has unbounded cost; this is a rare example of where prompt destruction, usually a wonderful property, is actually bad for performance. (This is less of a problem with `unique_ptr` because `unique_ptr` assignment necessarily causes destruction and so tends to be treated more carefully, whereas `shared_ptr` assignment *might* cause destruction.)
+
+Today, deadline-driven code must either avoid manipulating `shared_ptr`s or take defensive measures:
+
+- Banning pointer assignment or destruction entirely in deadline-driven code, such as by deferring the pointer assignment until after the end of the critical code region, is not always an option because the code may need to change which object a pointer refers to while still inside the critical region.
+
+- Bounding the number of objects reachable from a `shared_ptr` can make the assignment cost have an upper bound to fit within the deadline, but requires ongoing care during maintenance. Adding an additional object, or changing the cost of a destructor, can exceed the bound.
+
+- Deferring destruction by storing additional strong references in a separate "keepalive" data structure allows tracing to be performed later, outside the critical code region, to identify and destroy those objects no longer referred to from outside the keepalive structure. However, this amounts to another form of manually implemented liveness tracing.
+
+By design, `gc_ptr` has trivial assignment which always has bounded cost suitable for use in a critical section (same as copying a raw pointer), and `gc_heap` gives full control over when and where `collect()` runs deferred destructors. This makes it a candidate for being appropriate for real-time code in situations where using `shared_ptr` is problematic.
+
 ## Object lifetime guidance: For C++17 and for the gcpp library
 
 The following summarizes the best practices we should already teach for expressing object lifetimes in C++17, and at the end adds a potential new fallback option to consider gcpp.
@@ -56,7 +70,7 @@ The following summarizes the best practices we should already teach for expressi
 | [C++17] **1. Where possible, prefer scoped lifetime** by default (e.g., locals, members) | Expressing that this object's lifetime is tied to some other lifetime that is already well defined, such as a block scope (`auto` storage duration) or another object (member lifetime) | Zero additional lifetime management overhead for this object | |
 | [C++17] **2. Else prefer `make_unique` and `unique_ptr`**, if the object must have its own lifetime (i.e., heap) and ownership can be unique without ownership cycles | Single-ownership heap object lifetime | Usually identical cost as correctly written `new`+`delete` | Clearer and more robust than explicit `delete` (declarative, uses are correct by construction) |
 | [C++17] **3. Else prefer `make_shared` and `shared_ptr`**, if the object must have its own lifetime (i.e., heap) and shared ownership, without ownership cycles | Acyclic shared heap object lifetime managed with reference counting | Usually identical cost as correctly written manual reference counting | Clearer and more robust than manual/custom reference count logic (declarative, uses are correct by construction) |
-| [gcpp, experimental] **4. Else consider `gc_heap` and `gc_ptr`**, if the object must have its own lifetime (i.e., heap) and there can be ownership cycles | Potentially-cyclic shared heap object lifetime managed with liveness tracing<br><br>Lock-free data structures that perform general node deletion and/or have cycles | (conjecture) Usually identical cost as correctly written manual tracing | (conjecture) Clearer and more robust than manual/custom tracing logic (declarative, uses are correct by construction) |
+| [gcpp, experimental] **4. Else consider `gc_heap` and `gc_ptr`**, if the object must have its own lifetime (i.e., heap) and there can be ownership cycles | Potentially-cyclic shared heap object lifetime managed with liveness tracing<br><br>Lock-free concurrent data structures that perform general node deletion and/or have cycles | (conjecture) Usually identical cost as correctly written manual tracing | (conjecture) Clearer and more robust than manual/custom tracing logic (declarative, uses are correct by construction) |
 
 
 # Implementation notes
@@ -97,6 +111,8 @@ The following summarizes the best practices we should already teach for expressi
 
    - The proof-of-concept collector just registers all `gc_ptr`s; other collectors might register only `gc_ptr`s that are external roots.
 
+   - In the current prototype: Constructing and enregistering a `gc_ptr` registration is cheap, with cost O(gc_heap's #pages), performing an average-case constant-time query of each memory page in the `gc_heap`. Destroying and deregistering a `gc_ptr` is currently O(gc_heap's #gc_ptrs) as it performs a linear scan of the unsorted registered `gc_ptr`s for this `gc_heap`. If necessary the latter can be optimized. Note that both are already localized to one specific `gc_heap`.
+
 ## atomic_gc_ptr
 
 `atomic_gc_ptr` is designed to be thread-safe for concurrent use, and have its uses be lock-free.
@@ -114,11 +130,11 @@ The following summarizes the best practices we should already teach for expressi
 
 - `deallocate()` is a no-op, but performs checking in debug builds. It does not need to actually deallocate because memory-safe deallocation will happen at the next `.collect()` after the memory becomes unreachable.
 
-- `destroy()` is a no-op, but perform checking in debug builds. It does not need to remember the destructor because that was already correctly recorded when `construct()` was called; see next point. It does not need to call the destructor because the destructor will be called type-safely when the object is unreachable (or, for `vector` only, when the container in-place constructs a new object in the same location; see next subpoint).
+- `destroy()` is a no-op, but performs checking in debug builds. It does not need to remember the destructor because that was already correctly recorded when `construct()` was called; see next point. It does not need to call the destructor because the destructor will be called type-safely when the object is unreachable (or, for `vector` only, when the container in-place constructs a new object in the same location; see next subpoint).
 
 - The in-place `construct()` function remembers the type-correct destructor -- if needed, which means only if the object has a nontrivial destructor.
 
-   - `construct()` is available via `gc_allocator` only, and adds special sauce for handling `vector::pop_back` followed by `push_back`: A pending destructor is also run before constructing an object in a location for which the destructor is pending. This is the only situation where a destructor runs other than at `.collect()` time, and only happens when using `vector<T, gc_allocator<T>>`.
+   - `construct()` is available via `gc_allocator` only, and adds special sauce for handling `vector::pop_back` followed by `push_back`: A pending destructor is also run before constructing an object in a location for which the destructor is pending. This is the only situation where a destructor runs sooner than at `.collect()` time, and only happens when using `vector<T, gc_allocator<T>>`.
    
    - Note: We assume the container implementation is not malicious. To my knowledge, `gc_allocator::construct()` is the only operation in gcpp that could be abused in a type-unsafe way, ignoring code that resorts to undefined behavior like `reinterpret_cast`ing `gc_ptr`s.
 
