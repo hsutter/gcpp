@@ -27,3 +27,13 @@
 *.exe
 *.out
 *.app
+
+# VS artifacts
+*.sln
+*.db
+*.vcxproj
+*.filters
+*.opendb
+
+# Subdirectories
+*/
