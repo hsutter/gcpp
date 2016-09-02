@@ -6,20 +6,22 @@ Herb Sutter -- Updated 2016-09-01
 
 The gcpp library is an experiment at adding tracing garbage collection as a library to the C++ toolbox. It provides a `gc_heap` type that encapsulates a bubble of memory containing objects accessed via `gc_ptr<T>`.
 
-- This library **is** opt-in, deterministic, accurate, type-safe including calling real destructors, scoped and composable including allowing multiple little separately collected `gc_heap`s, and adheres to C++'s zero-overhead abstraction principle (a.k.a. "you don't pay for what you don't use and you usually couldn't write it more efficiently by hand") -- space and time cost is always proportional to how much GC allocation your code performs, including zero cost if you never perform a GC allocation.
+- _**gcpp is**_ opt-in, deterministic, accurate, type-safe including calling real destructors, scoped and composable including allowing multiple little separately collected `gc_heap`s, and adheres to C++'s zero-overhead abstraction principle (a.k.a. "you don't pay for what you don't use and you usually couldn't write it more efficiently by hand") -- space and time cost is always proportional to how much GC allocation your code performs, including zero cost if you never perform a GC allocation.
 
-- This library **is not yet** attempting to be scalable or production quality. The goal for now is to try out a proof of concept to validate whether the general approach and interface are right.
+- _**gcpp is not yet**_ attempting to be scalable or production quality. The goal for now is to try out a proof of concept to validate whether the general approach and interface are right.
 
-- This library **will not ever** trace the whole C++ heap, incur uncontrollable or global GC pauses, add a "finalizer" concept, permit object "resurrection," be recommended as a default allocator, or replace `unique_ptr` and `shared_ptr` -- we are very happy with C++'s current lifetime model, and the aim here is only to add a fourth fallback when today's options are insufficient.
+- _**gcpp will not ever**_ trace the whole C++ heap, incur uncontrollable or global GC pauses, add a "finalizer" concept, permit object "resurrection," be recommended as a default allocator, or replace `unique_ptr` and `shared_ptr` -- we are very happy with C++'s current lifetime model, and the aim here is only to add a fourth fallback when today's options are insufficient.
 
 This project aims to continue C++'s long tradition of being a great language for building libraries, including specialized memory allocation libraries such as regions, arenas, pools, and allocators.
 
 
-## Two target scenarios (and a possible bonus scenario) 
+## Two target use cases
 
-Gcpp aims to address two scenarios, in order starting with the most important.
+Gcpp aims to address two primary use cases. Initial work has also indicated a possible third use case to explore, but it is speculative.
 
-**(1) `gc_ptr` for potentially-cyclic data structures.** Automatic by-construction memory management for data structures with cycles, which cannot be expressed with fully automated lifetime using C++17 facilities only.
+### 1. gc_ptr for potentially-cyclic data structures
+
+The first target use case is automatic by-construction memory management for data structures with cycles, which cannot be expressed with fully automated lifetime using C++17 facilities only.
 
 - Encapsulated example: A `Graph` type whose `Node`s point to each other but should stay alive as long as they are transitively reachable from the enclosing `Graph` object or from some object such as a `Graph::iterator` that is handed out by the `Graph` object.
 
@@ -27,17 +29,21 @@ Gcpp aims to address two scenarios, in order starting with the most important.
 
 - In C++17, both examples can be partly automated (e.g., having `Graph` contain a `vector<unique_ptr<Node>> my_nodes;` so that all nodes are guaranteed to be destroyed at least when the `Graph` is destroyed), but require at minimum manual liveness tracing today (e.g., traversal logic to discover unreachable `Node` objects, which essentially implements a tracing collection algorithm by hand for the nodes, and then `my_nodes.erase(unreachable_node);` to remove each unreachable node which is manual and morally equivalent to `delete unreachable_node;`).
 
-**(2) `atomic_gc_ptr` for lock-free data structures (with or without cycles).** Support scalable and concurrent lock-free data structures that encounter ABA and deletion problems and cannot be written efficiently or at all in portable Standard C++ today. A litmus test: If a lock-free library today resorts to hazard pointers or transactional memory to solve ABA and deletion problems, it is probably a candidate for using `atomic_gc_ptr` instead.
+### 2. atomic_gc_ptr for lock-free data structures (with or without cycles)
+
+The second target use case is to support scalable and concurrent lock-free data structures that encounter ABA and deletion problems and cannot be written efficiently or at all in portable Standard C++ today. As a litmus test: If a lock-free library today resorts to hazard pointers or transactional memory to solve ABA and deletion problems, it is probably a candidate for using `atomic_gc_ptr` instead.
 
 - Acyclic example: A lock-free queue that supports both traversal and node deletion. (Note: C++17 `atomic_shared_ptr`, also written by me, also addresses this problem. However, making it truly lock-free requires at least some additional complexity in the implementation; thanks to Anthony Williams for contributing implementation experience with `atomic_shared_ptr` including demonstrating a lock-free implementation. Finally, some experts still question its lock-free property.)
 
 - Cyclic example: A lock-free graph that can contain cycles.
 
-<br>Finally, the following was not an original scenario, but it's an interesting case to explore because it might just fall out once a `gc_heap` abstraction is available and may have some interesting properties:
+### Possible bonus use case (speculative): gc_allocator for STL containers 
 
-**(Speculative) `gc_allocator` for STL containers.** `gc_allocator` wraps up a `gc_heap` an allocator.
+Finally, `gc_allocator` wraps up a `gc_heap` as an STL allocator. This was not an original use case, and is not a primary target, but it's an interesting case to explore because it might just fall out once a `gc_heap` abstraction is available and it may have some interesting properties.
 
-- When using a `container<T, gc_allocator<T>>`, iterators can’t dangle (point to a destroyed or deallocated object) because they keep objects alive. This turns dereferencing an invalidated iterator from an undefined behavior problem into (mostly) a stale data problem. See notes below for limitations on iterator navigation using invalidated iterators.
+- When using a `container<T, gc_allocator<T>>`, iterators can’t dangle (point to a destroyed or deallocated object) because they keep objects alive. This turns dereferencing an invalidated iterator from an undefined behavior problem into (mostly) a stale data problem.
+
+- See notes below for limitations on iterator navigation using invalidated iterators.
 
 - Note: `gc_allocator` relies on C++11's allocator extensions to support "fancy" user-defined pointer types. It does not work with pre-C++11 standard libraries, which required `allocator::pointer` to be a raw pointer type. If you are using Microsoft Visual C++, the current implementation requires MSVC 2015 Update 3; it does not work on Update 2 which did not yet have enough fancy pointer support.
 
@@ -100,7 +106,7 @@ Gcpp aims to address two scenarios, in order starting with the most important.
 
 ## gc_allocator (speculative)
 
-**Note: Not a primary scenario.** `gc_allocator` is an experiment to wrap a `gc_heap` up as a C++11 allocator. It appears to work with unmodified current STL containers, but I'm still exploring how well and exploring the limits. Note that `gc_allocator` requires C++11 allocator support for fancy pointers; on MSVC, it requires Visual Studio 2015 Update 3 or greater.
+**Note: Not a primary target use case.** `gc_allocator` is an experiment to wrap a `gc_heap` up as a C++11 allocator. It appears to work with unmodified current STL containers, but I'm still exploring how well and exploring the limits. Note that `gc_allocator` requires C++11 allocator support for fancy pointers; on MSVC, it requires Visual Studio 2015 Update 3 or greater.
 
 - `deallocate()` is a no-op, but performs checking in debug builds. It does not need to actually deallocate because deallocation will happen at the next `.collect()` after the memory becomes unreachable.
 
@@ -118,8 +124,7 @@ Gcpp aims to address two scenarios, in order starting with the most important.
 
    - For all containers, an invalidated iterator points to a valid object. However, the object may have a different value, including being in a moved-from state; also, reading the object via the invalidated iterator is not guaranteed to see changes made to the container, and vice versa.
 
-   - For a node-based container, an invalidated iterator could still navigate to other erased/current nodes that the erased node happens to be pointing to, if the container did not change the logically-deleted node in a way that breaks its iterator increment/decrement logic. Note: This is not guaranteed to work, but appears to work in practice in the implementations I tried.
+   - For a node-based container or `deque`, an invalidated iterator could still navigate to other erased/current nodes that the erased node happens to be pointing to, if the container did not change the logically-deleted node in a way that breaks its iterator increment/decrement logic. Note: This is not guaranteed to work, but appears to work in practice in the `set` implementations I've tried so far.
 
    - For a `vector`, any use of an iterator to navigate beyond the end of the allocation that the iterator actually points into will fire an assert in debug builds. An invalidated iterator will keep an outgrown-and-discarded `vector` buffer alive and can still be compared correctly with other iterators into the same actual buffer (i.e., iterators of the same vintage == when the vector had the same capacity). In particular, an invalidated iterator obtained before the vector's last expansion cannot be correctly compared to the vector's current `.begin()` or `.end()`, and loops that do that with an invalidated iterator will fire an assert in debug builds.
-
 
