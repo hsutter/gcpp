@@ -101,17 +101,18 @@ namespace gcpp {
 
 		struct gcpage {
 			gpage						page;
-			std::vector<bool> 			live_starts;	// for tracing
+			bitflags		 			live_starts;	// for tracing
 			std::vector<nonroot>		gc_ptrs;		// known gc_ptrs in this page
 
 			//	Construct a page tuned to hold Hint objects, big enough for
-			//	at least 1 + phi ~= 2.62 of these requests (but at least 1024B),
-			//	and a tracking min_alloc chunk sizeof(Hint) (but at least 4 bytes).
+			//	at least 1 + phi ~= 2.62 of these requests (but at least 64K),
+			//	and a tracking min_alloc chunk sizeof(request) (but at least 4 bytes).
 			//	Note: Hint used only to deduce size/alignment.
+			//	TODO: don't allocate objects on pages with chunk sizes > 2 * object size
 			//
 			template<class Hint>
 			gcpage(const Hint* /*--*/, size_t n)
-				: page{ std::max<size_t>(sizeof(Hint) * n * 2.62, 1024), 
+				: page{ std::max<size_t>(sizeof(Hint) * n * 2.62, 8192 /*for debugging; TODO: 65536*/), 
 						std::max<size_t>(sizeof(Hint), 4) }
 				, live_starts(page.locations(), false)
 			{ }
@@ -168,12 +169,15 @@ namespace gcpp {
 		//  Helper: Return the gcpage on which this object exists.
 		//	If the object is not in our storage, returns null.
 		//
-		struct find_gcpage_of_ret {
+		template<class T>
+		gcpage* find_gcpage_of(T& x) noexcept;
+
+		struct find_gcpage_info_ret {
 			gcpage* page = nullptr;
-			gpage::contains_ret info;
+			gpage::contains_info_ret info;
 		};
 		template<class T> 
-		find_gcpage_of_ret find_gcpage_of(T& x) noexcept;
+		find_gcpage_info_ret find_gcpage_info(T& x) noexcept;
 
 		template<class T> 
 		gc_ptr<T> allocate(std::size_t n = 1);
@@ -279,7 +283,6 @@ namespace gcpp {
 		}
 
 		T* operator->() const noexcept {
-			//	This assertion is enabled, it doesn't break any STL I tried
 			assert(get() && "attempt to dereference null");
 			return get();
 		}
@@ -296,7 +299,7 @@ namespace gcpp {
 			assert(get() != nullptr 
 				&& "bad gc_ptr arithmetic: can't perform arithmetic on a null pointer");
 
-			auto this_info = gc().find_gcpage_of(*get());
+			auto this_info = gc().find_gcpage_info(*get());
 
 			assert(this_info.page != nullptr
 				&& "corrupt non-null gc_ptr, not pointing into gc arena");
@@ -305,7 +308,7 @@ namespace gcpp {
 				&& "corrupt non-null gc_ptr, pointing to unallocated memory");
 
 			auto temp = get() + offset;
-			auto temp_info = gc().find_gcpage_of(*temp);
+			auto temp_info = gc().find_gcpage_info(*temp);
 
 			assert(this_info.page == temp_info.page 
 				&& "bad gc_ptr arithmetic: attempt to leave gcpage");
@@ -378,8 +381,8 @@ namespace gcpp {
 			assert(get() != nullptr && that.get() != nullptr
 				&& "bad gc_ptr arithmetic: can't subtract pointers when one is null");
 
-			auto this_info = gc().find_gcpage_of(*get());
-			auto that_info = gc().find_gcpage_of(*that.get());
+			auto this_info = gc().find_gcpage_info(*get());
+			auto that_info = gc().find_gcpage_info(*that.get());
 
 			assert(this_info.page != nullptr
 				&& that_info.page != nullptr
@@ -583,7 +586,7 @@ namespace gcpp {
 	void gc_heap::enregister(const gc_ptr_void& p) 
 	{
 		// append it to the back of the appropriate list
-		auto pg = find_gcpage_of(p).page;
+		auto pg = find_gcpage_of(p);
 		if (pg != nullptr) 
 		{
 			pg->gc_ptrs.push_back(&p);
@@ -630,11 +633,20 @@ namespace gcpp {
 	//	If the object is not in our storage, returns null.
 	//
 	template<class T>
-	gc_heap::find_gcpage_of_ret gc_heap::find_gcpage_of(T& x) noexcept {
-		find_gcpage_of_ret ret;
-		auto addr = (byte*)&x;
+	gc_heap::gcpage* gc_heap::find_gcpage_of(T& x) noexcept {
 		for (auto& pg : pages) {
-			auto info = pg.page.contains(addr);
+			if (pg.page.contains(&x))
+				return &pg;
+		}
+		return nullptr;
+	}
+
+	template<class T>
+	gc_heap::find_gcpage_info_ret gc_heap::find_gcpage_info(T& x)  noexcept {
+		find_gcpage_info_ret ret;
+		//auto addr = (byte*)&x;
+		for (auto& pg : pages) {
+			auto info = pg.page.contains_info(&x);
 			if (info.found != gpage::not_in_range) {
 				ret.page = &pg;
 				ret.info = info;
@@ -783,9 +795,9 @@ namespace gcpp {
 					//	=====================================================================
 					//  === BEGIN REENTRANCY-SAFE: ensure no in-progress use of private state
 					d.dtor(d.p + i);	// call each object's destructor
-										//  === END REENTRANCY-SAFE: reload any stored copies of private state
-										// TODO REENTRANCY-UNSAFE
-										//	=====================================================================
+					//  === END REENTRANCY-SAFE: reload any stored copies of private state
+					// TODO REENTRANCY-UNSAFE
+					//	=====================================================================
 				}
 			}
 		}
@@ -806,16 +818,16 @@ namespace gcpp {
 
 		// ... find which page it points into ...
 		for (auto& pg : pages) {
-			auto where = pg.page.contains((byte*)p);
+			auto where = pg.page.contains_info((byte*)p);
 			assert(where.found != gpage::in_range_unallocated
 				&& "must not point to unallocated memory");
 			if (where.found != gpage::not_in_range) {
 				// ... and mark the chunk as live ...
-				pg.live_starts[where.start_location] = true;
+				pg.live_starts.set(where.start_location, true);
 
 				// ... and mark any gc_ptrs in the allocation as reachable
 				for (auto& gcp : pg.gc_ptrs) {
-					auto gcp_where = pg.page.contains((byte*)gcp.p);
+					auto gcp_where = pg.page.contains_info((byte*)gcp.p);
 					assert((gcp_where.found == gpage::in_range_allocated_middle
 						|| gcp_where.found == gpage::in_range_allocated_start)
 						&& "points to unallocated memory");
@@ -834,7 +846,7 @@ namespace gcpp {
 		//	1. reset all the mark bits and in-arena gc_ptr levels
 		//
 		for (auto& pg : pages) {
-			pg.live_starts.assign(pg.live_starts.size(), false);
+			pg.live_starts.set_all(false);
 			for (auto& gcp : pg.gc_ptrs) {
 				gcp.level = 0;
 			}
@@ -861,18 +873,18 @@ namespace gcpp {
 			}
 		}
 
-//#ifndef NDEBUG
-		std::cout << "=== COLLECT live_starts locations:\n     ";
-		for (auto& pg : pages) {
-			for (std::size_t i = 0; i < pg.page.locations(); ++i) {
-				std::cout << (pg.live_starts[i] ? 'A' : '.');
-				if (i % 8 == 7) { std::cout << ' '; }
-				if (i % 64 == 63) { std::cout << "\n     "; }
-			}
-			std::cout << "\n     ";
-		}
-		std::cout << "\n";
-//#endif
+#ifndef NDEBUG
+		//std::cout << "=== COLLECT live_starts locations:\n     ";
+		//for (auto& pg : pages) {
+		//	for (std::size_t i = 0; i < pg.page.locations(); ++i) {
+		//		std::cout << (pg.live_starts.get(i) ? 'A' : '.');
+		//		if (i % 8 == 7) { std::cout << ' '; }
+		//		if (i % 64 == 63) { std::cout << "\n     "; }
+		//	}
+		//	std::cout << "\n     ";
+		//}
+		//std::cout << "\n";
+#endif
 
 		//	We have now marked every allocation to save, so now
 		//	go through and clean up all the unreachable objects
@@ -922,7 +934,7 @@ namespace gcpp {
 		for (auto& pg : pages) {
 			for (std::size_t i = 0; i < pg.page.locations(); ++i) {
 				auto start = pg.page.location_info(i);
-				if (start.is_start && !pg.live_starts[i]) {
+				if (start.is_start && !pg.live_starts.get(i)) {
 					//	this is an allocation to destroy and deallocate
 
 					//	find the end of the allocation

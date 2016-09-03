@@ -80,6 +80,12 @@ struct node {
 };
 
 
+//----------------------------------------------------------------------------
+//
+//	Basic use of a single page.
+//
+//----------------------------------------------------------------------------
+
 void test_page() {
 	gpage g;
 	g.debug_print();
@@ -102,6 +108,13 @@ void test_page() {
 	auto p5 = g.allocate<char>();
 	g.debug_print();
 }
+
+
+//----------------------------------------------------------------------------
+//
+//	Basic use of a gc_heap.
+//
+//----------------------------------------------------------------------------
 
 void test_gc() {
 	vector<gc_ptr<int>> v;
@@ -135,6 +148,14 @@ void test_gc() {
 	gc().debug_print();
 }
 
+
+//----------------------------------------------------------------------------
+//
+//	Basic use of a gc_allocator on its own, just to make sure it's wired up
+//	correctly for allocator_traits to call the right things.
+//
+//----------------------------------------------------------------------------
+
 void test_gc_allocator() {
 
 	using X = std::allocator_traits<gc_allocator<int>>;
@@ -145,6 +166,13 @@ void test_gc_allocator() {
 	X::destroy(x, p.get());
 	X::deallocate(x, p, 1);
 }
+
+
+//----------------------------------------------------------------------------
+//
+//	Try a gc_allocator with a set.
+//
+//----------------------------------------------------------------------------
 
 void test_gc_allocator_set() {
 	set<widget, less<widget>, gc_allocator<widget>> s;
@@ -172,26 +200,12 @@ void test_gc_allocator_set() {
 	gc().debug_print();	// now the erased node is deleted (including correctly destroyed)
 }
 
-template<class Set, int N>
-void time_set() {
-	Set s;
-	auto start = std::chrono::high_resolution_clock::now();
-	for (int i = 0; i < N; ++i)
-		s.insert(i);
-	auto end = std::chrono::high_resolution_clock::now();
-	cout << typeid(Set).name() << " time: "
-		<< std::chrono::duration<double, std::milli>(end - start).count()
-		<< "ms\n";
-}
 
-void time_gc_allocator_set() {
-	constexpr int N = 10;
-	time_set<set<int>, N>();
-	time_set<set<int, less<int>, gc_allocator<int>>, N>();
-	gc().debug_print();
-	gc().collect();
-	gc().debug_print();
-}
+//----------------------------------------------------------------------------
+//
+//	Try a gc_allocator with a vector.
+//
+//----------------------------------------------------------------------------
 
 void test_gc_allocator_vector() {
 	vector<widget, gc_allocator<widget>> v;
@@ -226,25 +240,55 @@ void test_gc_allocator_vector() {
 						// (this happens automatically inside construct())
 }
 
-template<class Vec, int N>
-void time_vec() {
+
+//----------------------------------------------------------------------------
+//
+//	Some timing of gc_allocator with set and vector.
+//
+//----------------------------------------------------------------------------
+
+template<class Set>
+void time_set(const char* sz, int N) {
+	Set s;
+	auto start = std::chrono::high_resolution_clock::now();
+	for (int i = 0; i < N; ++i)
+		s.insert(i);
+	auto end = std::chrono::high_resolution_clock::now();
+	cout << sz << "(" << N << ") time: "
+		<< std::chrono::duration<double, std::milli>(end - start).count()
+		<< "ms\n";
+}
+
+void time_gc_allocator_set() {
+	for (int i = 10; i < 11000; i *= 2) {
+		time_set<set<int>>("set<int>", i);
+		time_set<set<int, less<int>, gc_allocator<int>>>("set<int,gc>", i);
+		//gc().debug_print();
+		gc().collect();
+		//gc().debug_print();
+	}
+}
+
+template<class Vec>
+void time_vec(const char* sz, int N) {
 	Vec v;
 	auto start = std::chrono::high_resolution_clock::now();
 	for (int i = 0; i < N; ++i)
 		v.push_back(i);
 	auto end = std::chrono::high_resolution_clock::now();
-	cout << typeid(Vec).name() << " time: "
+	cout << sz << "(" << N << ") time: "
 		<< std::chrono::duration<double, std::milli>(end - start).count()
 		<< "ms\n";
 }
 
 void time_gc_allocator_vector() {
-	constexpr int N = 1000;
-	time_vec<vector<int>, N>();
-	time_vec<vector<int, gc_allocator<int>>, N>();
-	gc().debug_print();
-	gc().collect();
-	gc().debug_print();
+	for (int i = 10; i < 11000; i *= 2) {
+		//time_vec<vector<int>>("vector<int>", i);
+		time_vec<vector<int, gc_allocator<int>>>("vector<int,gc>", i);
+		//gc().debug_print();
+		//gc().collect();
+		//gc().debug_print();
+	}
 }
 
 void test_gc_array() {
@@ -276,9 +320,9 @@ int main() {
 	//test_page();
 	//test_gc();
 	//test_gc_allocator();
-	test_gc_allocator_set();
+	//test_gc_allocator_set();
 	//time_gc_allocator_set();
-	//test_gc_allocator_vector();
+	test_gc_allocator_vector();
 	//time_gc_allocator_vector();
 	//test_gc_array();
 }

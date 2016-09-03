@@ -20,6 +20,63 @@ namespace gcpp {
 
 	//----------------------------------------------------------------------------
 	//
+	//	vector<bool> operations aren't always optimized, so here's a custom class.
+	//
+	//----------------------------------------------------------------------------
+
+	class bitflags {
+		const std::size_t size;
+		std::vector<byte> bits;
+
+	public:
+		bitflags(std::size_t bits, bool value) 
+			: size{ bits } 
+			, bits( 1 + size / sizeof(byte), value ? 0xFF : 0x00 )
+		{
+			// set_all(value); 
+		}
+
+		bool get(int at) const {
+			assert(0 <= at && at < size && "bitflags get() out of range");
+			return (bits[at / sizeof(byte)] & (1 << (at % sizeof(byte)))) > 0;
+		}
+
+		void set(int at, bool value) {
+			assert(0 <= at && at < size && "bitflags set() out of range");
+			if (value) {
+				bits[at / sizeof(byte)] |= (1 << (at % sizeof(byte)));
+			}
+			else {
+				bits[at / sizeof(byte)] &= (0xff ^ (1 << (at % sizeof(byte))));
+			}
+		}
+
+		void set_all(bool b) { 
+			std::fill(begin(bits), end(bits), b ? 0xff : 0x00); 
+		}
+
+		void set(int from, int to, bool value) {
+			// first set the remaining bits in the partial byte this range begins within
+			while (from < to && from % sizeof(byte) != 0) {
+				set(from++, value);
+			}
+
+			// then set whole bytes (makes a significant performance difference)
+			while (from < to && to - from >= sizeof(byte)) {
+				bits[from / sizeof(byte)] = value ? 0xFF : 0x00;
+				from += sizeof(byte);
+			}
+
+			// then set the remaining bits in the partial byte this range ends within
+			while (from < to) {
+				set(from++, value);
+			}
+		}
+	};
+
+
+	//----------------------------------------------------------------------------
+	//
 	//	gpage - One contiguous allocation
 	//
 	//  total_size	Total arena size (arena does not grow)
@@ -38,8 +95,8 @@ namespace gcpp {
 		const std::size_t				total_size;
 		const std::size_t				min_alloc;
 		const std::unique_ptr<byte[]>	storage;
-		std::vector<bool>				inuse;
-		std::vector<bool>				starts;
+		bitflags						inuse;
+		bitflags						starts;
 		std::size_t						current_known_request_bound = total_size;
 
 		//	Disable copy and move
@@ -62,20 +119,23 @@ namespace gcpp {
 
 		//  Return whether p points into this page's storage and is allocated.
 		//
+		template<class T>
+		bool contains(T* p) const noexcept;
+
 		enum gpage_find_result {
 			not_in_range = 0,
 			in_range_unallocated,
 			in_range_allocated_middle,
 			in_range_allocated_start
 		};
-		struct contains_ret {
+		struct contains_info_ret {
 			gpage_find_result found;
 			std::size_t		  location;
 			std::size_t		  start_location;
 		};
 		template<class T>
-		contains_ret 
-		contains(T* p) const noexcept;
+		contains_info_ret 
+		contains_info(T* p) const noexcept;
 
 		//  Return whether there is an allocation starting at this location.
 		//
@@ -125,8 +185,7 @@ namespace gcpp {
 	//  Allocate space for num objects of type T
 	//
 	template<class T>
-	T* gpage::allocate(std::size_t num) noexcept 
-	{
+	T* gpage::allocate(std::size_t num) noexcept {
 		const auto bytes_needed = sizeof(T)*num;
 
 		//	optimization: if we know we don't have room, don't even scan
@@ -160,7 +219,7 @@ namespace gcpp {
 			//	TODO replace with std::find_if
 			for (; j < locations_needed; ++j) {
 				// if any location is in use, keep going
-				if (inuse[i + j]) {
+				if (inuse.get(i + j)) {
 					// optimization: bump i to avoid probing the same location twice
 					i += j;
 					break;
@@ -180,8 +239,8 @@ namespace gcpp {
 		}
 
 		//	otherwise, allocate it: mark the start and now-used locations...
-		starts[i] = true;							// mark that 'i' begins an allocation
-		std::fill(inuse.begin() + i, inuse.begin() + i + locations_needed, true);
+		starts.set(i, true);							// mark that 'i' begins an allocation
+		inuse.set(i, i + locations_needed, true);
 
 		//	optimization: remember that we have this much less memory free
 		current_known_request_bound -= min_alloc * locations_needed;
@@ -194,22 +253,27 @@ namespace gcpp {
 	//  Return whether p points into this page's storage and is allocated.
 	//
 	template<class T>
-	gpage::contains_ret gpage::contains(T* p) const noexcept 
-	{
-		auto pp = reinterpret_cast<byte*>(p);
+	bool gpage::contains(T* p) const noexcept {
+		auto pp = reinterpret_cast<const byte*>(p);
+		return (&storage[0] <= pp && pp < &storage[total_size - 1]);
+	}
+
+	template<class T>
+	gpage::contains_info_ret gpage::contains_info(T* p) const noexcept {
+		auto pp = reinterpret_cast<const byte*>(p);
 		if (!(&storage[0] <= pp && pp < &storage[total_size - 1])) {
 			return{ not_in_range, 0, 0 };
 		}
 
 		auto where = (pp - &storage[0]) / min_alloc;
-		if (!inuse[where]) {
+		if (!inuse.get(where)) {
 			return{ in_range_unallocated, where, 0 };
 		}
 
-		if (!starts[where])	{
+		if (!starts.get(where))	{
 			auto start = where;
 			//	TODO replace with find_if, possibly
-			while (start > 0 && !starts[start - 1]) {
+			while (start > 0 && !starts.get(start - 1)) {
 				--start;
 			}
 			assert(start > 0 && "there was no start to this allocation");
@@ -223,17 +287,15 @@ namespace gcpp {
 	//  Return whether there is an allocation starting at this location.
 	//
 	inline gpage::location_info_ret
-	gpage::location_info(std::size_t where) const noexcept 
-	{
-		return{ starts[where], &storage[where*min_alloc] };
+	gpage::location_info(std::size_t where) const noexcept {
+		return{ starts.get(where), &storage[where*min_alloc] };
 	}
 
 
 	//  Deallocate space for object(s) of type T
 	//
 	template<class T>
-	void gpage::deallocate(T* p) noexcept 
-	{
+	void gpage::deallocate(T* p) noexcept {
 		if (p == nullptr) return;
 
 		auto here = (reinterpret_cast<byte*>(p) - &storage[0]) / min_alloc;
@@ -241,17 +303,17 @@ namespace gcpp {
 		// p had better point to our storage and to the start of an allocation
 		// (note: we could also check alignment here but that seems superfluous)
 		assert(0 <= here && here < locations() && "attempt to deallocate - out of range");
-		assert(starts[here] && "attempt to deallocate - not at start of a valid allocation");
-		assert(inuse[here] && "attempt to deallocate - location is not in use");
+		assert(starts.get(here) && "attempt to deallocate - not at start of a valid allocation");
+		assert(inuse.get(here) && "attempt to deallocate - location is not in use");
 
 		// reset 'starts' to erase the record of the start of this allocation
-		starts[here] = false;
+		starts.set(here, false);
 
 		// scan 'starts' to find the start of the following allocation, if any
 		//	TODO replace with find_if
 		auto next_start = here + 1;
 		for (; next_start < locations(); ++next_start) {
-			if (starts[next_start])
+			if (starts.get(next_start))
 				break;
 		}
 
@@ -266,8 +328,8 @@ namespace gcpp {
 		//		== one past the last location in-use before the next_start
 		//	and flip the allocated bits as we go to erase the allocation record
 		//	TODO is there a std::algorithm we could use to replace this loop?
-		while (here < next_start && inuse[here]) {
-			inuse[here] = false;
+		while (here < next_start && inuse.get(here)) {
+			inuse.set(here, false);
 			++here;
 		}
 	}
@@ -275,8 +337,7 @@ namespace gcpp {
 
 	//	Debugging support
 	//
-	std::string lowest_hex_digits_of_address(byte* p, int num = 1) 
-	{
+	std::string lowest_hex_digits_of_address(byte* p, int num = 1) {
 		assert(0 < num && num < 9 && "number of digits must be 0..8");
 		static const char digits[] = "0123456789ABCDEF";
 
@@ -289,8 +350,7 @@ namespace gcpp {
 		return ret;
 	}
 
-	void gpage::debug_print() const 
-	{
+	void gpage::debug_print() const {
 		auto base = &storage[0];
 		std::cout << "--- total_size " << total_size << " --- min_alloc " << min_alloc
 			<< " --- " << (void*)base << " ---------------------------\n     ";
@@ -303,7 +363,7 @@ namespace gcpp {
 
 		for (std::size_t i = 0; i < locations(); ++i) {
 			if (i % 64 == 0) { std::cout << lowest_hex_digits_of_address(base + i*min_alloc, 4) << ' '; }
-			std::cout << (starts[i] ? 'A' : inuse[i] ? 'a' : '.');
+			std::cout << (starts.get(i) ? 'A' : inuse.get(i) ? 'a' : '.');
 			if (i % 8 == 7) { std::cout << ' '; }
 			if (i % 64 == 63) { std::cout << '\n'; }
 		}
