@@ -151,6 +151,47 @@ void test_gc() {
 
 //----------------------------------------------------------------------------
 //
+//	Some timing of gc_heap.
+//
+//----------------------------------------------------------------------------
+
+template<class T>
+void time_gc_shared(int N) {
+	vector<shared_ptr<T>> v;
+	auto start = std::chrono::high_resolution_clock::now();
+	for (int i = 0; i < N; ++i)
+		v.push_back(make_shared<T>());
+	auto end = std::chrono::high_resolution_clock::now();
+	cout << "shared_ptr (" << N << ") time: "
+		<< std::chrono::duration<double, std::milli>(end - start).count()
+		<< "ms  ";
+}
+
+template<class T>
+void time_gc_gc(int N) {
+	vector<gc_ptr<T>> v;
+	auto start = std::chrono::high_resolution_clock::now();
+	for (int i = 0; i < N; ++i)
+		v.push_back(make_gc<T>());
+	auto end = std::chrono::high_resolution_clock::now();
+	cout << "\tgc_ptr (" << N << ") time: "
+		<< std::chrono::duration<double, std::milli>(end - start).count()
+		<< "ms\n";
+}
+
+void time_gc() {
+	for (int i = 10; i < 100000; i *= 2) {
+		time_gc_shared<int>(i);
+		time_gc_gc<int>(i);
+		//gc().debug_print();
+		//gc().collect();
+		//gc().debug_print();
+	}
+}
+
+
+//----------------------------------------------------------------------------
+//
 //	Basic use of a gc_allocator on its own, just to make sure it's wired up
 //	correctly for allocator_traits to call the right things.
 //
@@ -264,7 +305,7 @@ void time_gc_allocator_set() {
 		time_set<set<int>>("set<int>", i);
 		time_set<set<int, less<int>, gc_allocator<int>>>("set<int,gc>", i);
 		//gc().debug_print();
-		gc().collect();
+		//gc().collect();
 		//gc().debug_print();
 	}
 }
@@ -318,12 +359,20 @@ void test_gc_array() {
 
 int main() {
 	//test_page();
+
 	//test_gc();
+	//time_gc();
+
 	//test_gc_allocator();
+
 	//test_gc_allocator_set();
 	//time_gc_allocator_set();
+
 	test_gc_allocator_vector();
 	//time_gc_allocator_vector();
+
 	//test_gc_array();
+
+	//gc().debug_print();
 }
 
