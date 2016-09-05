@@ -138,15 +138,17 @@ The following summarizes the best practices we should already teach for expressi
    
    - Note: We assume the container implementation is not malicious. To my knowledge, `gc_allocator::construct()` is the only operation in gcpp that could be abused in a type-unsafe way, ignoring code that resorts to undefined behavior like `reinterpret_cast`ing `gc_ptr`s.
 
-- `container<T, gc_allocator<T>>` iterators keep objects (not just memory) alive. This makes dereferencing an invalidated iterator type-safe, as well as memory-safe.
+- `container<T, gc_allocator<T>>` iterators keep objects (not just memory) alive. This makes **dereferencing** an invalidated iterator type-safe, as well as memory-safe.
 
    - The iterator stores `gc_ptr`, which makes the iterator a strong owner. When dereferencing invalidated iterators, this turns an undefined behavior problem into "just" a stale data problem.
 
-   - For all random access iterators that use pointer arithmetic, any use of an iterator to navigate beyond the end of the allocation that the iterator actually points into will fire an assert in debug builds.
-
    - For all containers, an invalidated iterator points to a valid object. Note that the object may have a different value than the (buggy) program expects, including that it may be in a moved-from state; also, reading the object via the invalidated iterator is not guaranteed to see changes made to the container, and vice versa.
 
-   - For a node-based container or `deque`, an invalidated iterator could still navigate to other erased/current nodes that the erased node happens to be pointing to, as long as the container implementation did not change the logically-deleted node in a way that breaks its iterator increment/decrement logic. Note: This is not guaranteed to work, but appears to work in practice in the node-based container implementations I've tried so far.
+- However, **using navigation** (e.g., incrementing) invalidated iterators is not much better than today.
+
+   - For all random access iterators that use pointer arithmetic, any use of an iterator to navigate beyond the end of the allocation that the iterator actually points into will fire an assert in debug builds.
 
    - For a `vector`, an invalidated iterator will keep an outgrown-and-discarded `vector` buffer alive and can still be compared correctly with other iterators into the same actual buffer (i.e., iterators of the same vintage == when the container had the same capacity). In particular, an invalidated iterator obtained before the `vector`'s last expansion cannot be correctly compared to the `vector`'s current `.begin()` or `.end()`, and loops that do that with an invalidated iterator will fire an assert in debug builds (because they perform `gc_ptr` checked pointer arithmetic).
+
+   - For a node-based container or `deque`, an invalidated iterator refers to a node whose pointers have been destroyed (not just reset). Incrementing an invalidated iterator to a node-based container is still undefined behavior, as today.
 
