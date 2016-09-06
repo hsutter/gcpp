@@ -83,6 +83,8 @@ The following summarizes the best practices we should already teach for expressi
 
 - `collect()` is explicit: It runs only when called. There are opt-in automatic `collect()` options (TODO), such as on `allocate()` failure before allocating a new page.
 
+    - If you never call `collect()`, a `gc_heap` behaves like a [region](https://en.wikipedia.org/wiki/Region-based_memory_management) that deallocates all memory efficiently at once. Unlike most regions which just let go of the memory, it will first  run any pending destructors and only then efficiently just let go of the memory.
+
 - Note: The prototype collector is not intended to be scalable or production-quality. The prototype focuses on interface design, and uses a proof-of-concept collector. I invite GC experts to suggest/code their own GC implementations under this interface. However, even this prototype collector implementation was written with a view to avoiding unreasonable space overhead and time complexity
 
 - `make<T>()` allocates and constructs a new `T` object and returns a `gc_ptr<T>`.
