@@ -132,6 +132,7 @@ namespace gcpp {
 			gpage_find_result found;
 			std::size_t		  location;
 			std::size_t		  start_location;
+			//std::size_t		  end_location;	// one past the end
 		};
 		template<class T>
 		contains_info_ret 
@@ -253,6 +254,7 @@ namespace gcpp {
 	//  Return whether p points into this page's storage and is allocated.
 	//
 	template<class T>
+	inline
 	bool gpage::contains(T* p) const noexcept {
 		auto pp = reinterpret_cast<const byte*>(p);
 		return (&storage[0] <= pp && pp < &storage[total_size - 1]);
@@ -269,6 +271,13 @@ namespace gcpp {
 		if (!inuse.get(where)) {
 			return{ in_range_unallocated, where, 0 };
 		}
+
+		//	find the end of this allocation
+		//	TODO replace with find_if, possibly
+		//auto end = where + 1;
+		//while (end < MAX && !starts.get(end) && inuse.get(end)) {
+		//	++end;
+		//}
 
 		if (!starts.get(where))	{
 			auto start = where;

@@ -8,7 +8,7 @@ The gcpp library is an experiment at adding tracing garbage collection as a libr
 
 - _**gcpp is**_ opt-in, deterministic, accurate, type-safe including calling real destructors, scoped and composable including allowing multiple little separately collected `gc_heap`s, and adheres to C++'s zero-overhead abstraction principle (a.k.a. "you don't pay for what you don't use and you usually couldn't write it more efficiently by hand") -- space and time cost is always proportional to how much GC allocation your code performs, including zero cost if you never perform a GC allocation.
 
-- _**gcpp is not yet**_ attempting to be scalable or production quality. The goal for now is to try out a proof of concept to validate whether the general approach and interface are right.
+- _**gcpp is not yet**_ attempting to be scalable or production quality. **Performance is awful beyond small numbers (1000s) of pointers.** The goal for now is to try out a proof of concept to validate whether the general approach and interface are workable.
 
 - _**gcpp will not ever**_ trace the whole C++ heap, incur uncontrollable or global GC pauses, add a "finalizer" concept, permit object "resurrection," be recommended as a default allocator, or replace `unique_ptr` and `shared_ptr` -- we are very happy with C++'s current lifetime model, and the aim here is only to add a fourth fallback when today's options are insufficient.
 

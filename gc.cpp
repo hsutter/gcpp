@@ -171,8 +171,9 @@ template<class T>
 void time_gc_gc(int N) {
 	vector<gc_ptr<T>> v;
 	auto start = std::chrono::high_resolution_clock::now();
-	for (int i = 0; i < N; ++i)
+	for (int i = 0; i < N; ++i) {
 		v.push_back(make_gc<T>());
+	}
 	auto end = std::chrono::high_resolution_clock::now();
 	cout << "\tgc_ptr (" << N << ") time: "
 		<< std::chrono::duration<double, std::milli>(end - start).count()
@@ -180,7 +181,7 @@ void time_gc_gc(int N) {
 }
 
 void time_gc() {
-	for (int i = 10; i < 100000; i *= 2) {
+	for (int i = 10; i < 10000; i *= 2) {
 		time_gc_shared<int>(i);
 		time_gc_gc<int>(i);
 		//gc().debug_print();
@@ -365,14 +366,15 @@ int main() {
 
 	//test_gc_allocator();
 
-	//test_gc_allocator_set();
+	test_gc_allocator_set();
 	//time_gc_allocator_set();
 
-	test_gc_allocator_vector();
+	//test_gc_allocator_vector();
 	//time_gc_allocator_vector();
 
 	//test_gc_array();
 
-	//gc().debug_print();
+	gc().collect();
+	gc().debug_print();
 }
 

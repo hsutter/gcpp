@@ -583,9 +583,8 @@ namespace gcpp {
 
 	//	Add this gc_ptr to the tracking list. Invoked when constructing a gc_ptr.
 	//
-	void gc_heap::enregister(const gc_ptr_void& p) 
-	{
-		// append it to the back of the appropriate list
+	void gc_heap::enregister(const gc_ptr_void& p) {
+		//	append it to the back of the appropriate list
 		auto pg = find_gcpage_of(p);
 		if (pg != nullptr) 
 		{
@@ -599,19 +598,19 @@ namespace gcpp {
 
 	//	Remove this gc_ptr from tracking. Invoked when destroying a gc_ptr.
 	//
-	void gc_heap::deregister(const gc_ptr_void& p) 
-	{
+	void gc_heap::deregister(const gc_ptr_void& p) {
 		//	find its entry, starting from the back because it's more 
 		//	likely to be there (newer objects tend to have shorter
 		//	lifetimes... all local gc_ptrs fall into this category,
 		//	and especially temporary gc_ptrs)
 		//
-		//	then remove it by shuffling up the ones after it
+		//	then remove it by moving back() here and popping
 		//
 		auto i = find(gc_roots.rbegin(), gc_roots.rend(), &p);
 		if (i != gc_roots.rend()) 
 		{
-			gc_roots.erase(--i.base());	// because reverse_iterators are... nonobvious
+			*i = gc_roots.back();
+			gc_roots.pop_back();
 			return;
 		}
 
@@ -621,7 +620,8 @@ namespace gcpp {
 				[&p](auto x) { return x.p == &p; });
 			if (j != pg.gc_ptrs.rend()) 
 			{
-				pg.gc_ptrs.erase(--j.base());	// because reverse_iterators are... nonobvious
+				*j = pg.gc_ptrs.back();
+				pg.gc_ptrs.pop_back();
 				return;
 			}
 		}
@@ -634,6 +634,12 @@ namespace gcpp {
 	//
 	template<class T>
 	gc_heap::gcpage* gc_heap::find_gcpage_of(T& x) noexcept {
+		//auto it = find_if(pages.rbegin(), pages.rend(),
+		//	[&](auto& pg) { return pg.page.contains(&x); });
+		//if (it != pages.rend()) {
+		//	return &*it;
+		//}
+
 		for (auto& pg : pages) {
 			if (pg.page.contains(&x))
 				return &pg;
@@ -815,6 +821,27 @@ namespace gcpp {
 		// if it isn't null ...
 		if (p == nullptr)
 			return;
+
+// TODO -- better replacement for rest of this function
+		////	... find which page it points into ...
+		//auto where = find_gcpage_info(p);
+		//assert(where.page != nullptr
+		//	&& "must not mark a location that's not in our heap");
+
+		//// ... mark the chunk as live ...
+		//where.page->live_starts.set(where.start_location, true);
+
+		////	... and mark any gc_ptrs in the allocation as reachable
+		//for (auto& gcp : gc_ptrs) {
+		//	// TODO this is inefficient, clean up
+		//	auto gcp_where = where.page->page.contains_info((byte*)gcp.p);
+		//	if (gcp_where.found != gpage::not_in_range
+		//		&& gcp_where.start_location == where.info.start_location
+		//		&& gcp.level == 0) {
+		//		gcp.level = level;	// 'level' steps from a root
+		//	}
+		//}
+
 
 		// ... find which page it points into ...
 		for (auto& pg : pages) {
