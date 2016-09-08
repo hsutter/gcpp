@@ -8,7 +8,7 @@ The gcpp library is an experiment at adding tracing garbage collection as a libr
 
 - _**gcpp is**_ opt-in, deterministic, accurate, type-safe including calling real destructors, scoped and composable including allowing multiple little separately collected `gc_heap`s, and adheres to C++'s zero-overhead abstraction principle (a.k.a. "you don't pay for what you don't use and you usually couldn't write it more efficiently by hand") -- space and time cost is always proportional to how much GC allocation your code performs, including zero cost if you never perform a GC allocation.
 
-- _**gcpp is not yet**_ attempting to be scalable or production quality. There are still placeholder linear operations, and performance is awful beyond small numbers (1000s) of pointers. The goal for now is to try out a proof of concept to validate whether the general approach and interface are workable.
+- _**gcpp is not yet**_ attempting to be scalable or production quality. The goal for now is to try out a proof of concept interface to validate whether the general approach is workable, and if so provide an interface that a production GC could plug underneath.
 
 - _**gcpp will not ever**_ trace the whole C++ heap, incur uncontrollable or global GC pauses, add a "finalizer" concept, permit object "resurrection," be recommended as a default allocator, or replace `unique_ptr` and `shared_ptr` -- we are very happy with C++'s current lifetime model, and the aim here is only to add a fourth fallback when today's options are insufficient.
 
@@ -85,7 +85,7 @@ The following summarizes the best practices we should already teach for expressi
 
     - If you never call `collect()`, a `gc_heap` behaves like a [region](https://en.wikipedia.org/wiki/Region-based_memory_management) that deallocates all memory efficiently at once. Unlike most regions which just let go of the memory, it will first  run any pending destructors and only then efficiently just let go of the memory.
 
-- Note: The prototype collector is not intended to be scalable or production-quality. The prototype focuses on interface design, and uses a proof-of-concept collector. I invite GC experts to suggest/code their own GC implementations under this interface. However, even this prototype collector implementation was written with a view to avoiding unreasonable space overhead and time complexity
+- Note: The prototype collector is not intended to be scalable or production-quality. The current collector is a placeholder -- it brute-force registers all `gc_ptr`s (not just roots), runs synchronously (not optionally concurrently), is not concurrency-safe (doesn't guard concurrent calls to the same `gc_heap`'s `.allocate()`), and doesn't perform normal optimizations (e.g., doesn't distinguish generations, doesn't steal bits for coloring). I invite GC experts to suggest/code their own GC implementations under this interface.
 
 - `make<T>()` allocates and constructs a new `T` object and returns a `gc_ptr<T>`.
 
