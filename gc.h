@@ -5,6 +5,7 @@
 
 #include <vector>
 #include <list>
+#include <unordered_set>
 #include <algorithm>
 #include <type_traits>
 #include <memory>
@@ -100,9 +101,9 @@ namespace gcpp {
 		};
 
 		struct gcpage {
-			gpage						page;
-			bitflags		 			live_starts;	// for tracing
-			std::vector<nonroot>		gc_ptrs;		// known gc_ptrs in this page
+			gpage				 page;
+			bitflags		 	 live_starts;	// for tracing
+			std::vector<nonroot> gc_ptrs;		// known gc_ptrs in this page
 
 			//	Construct a page tuned to hold Hint objects, big enough for
 			//	at least 1 + phi ~= 2.62 of these requests (but at least 64K),
@@ -122,10 +123,11 @@ namespace gcpp {
 		//------------------------------------------------------------------------
 		//	Data: Storage and tracking information
 		//
-		std::list<gcpage>				pages;
-		std::vector<const gc_ptr_void*> gc_roots;		// outside GC arena
-		std::vector<destructor>         destructors;
-		std::vector<array_destructor>   array_destructors;
+		std::list<gcpage>						pages;
+		std::unordered_set<const gc_ptr_void*>	gc_roots;	// outside GC arena
+		std::vector<destructor>					destructors;
+		std::vector<array_destructor>			array_destructors;
+		bool bDestroying = false;
 
 	public:
 		//------------------------------------------------------------------------
@@ -278,6 +280,7 @@ namespace gcpp {
 			//	implementation relies on being able to innocuously dereference
 			//	any pointer (even null) briefly just to take the pointee's
 			//	address again, to un-fancy "fancy" pointers like this one
+			//	(The next VS "15" Preview has a fix & we can re-enable this.)
 			//assert(get() && "attempt to dereference null");
 			return *get();
 		}
@@ -534,57 +537,38 @@ namespace gcpp {
 	//
 	gc_heap::~gc_heap() 
 	{
+		//	Note: setting this flag lets us skip worrying about reentrancy;
+		//	a destructor may not allocate a new object (which would try to
+		//	enregister and therefore change our data structurs)
+		bDestroying = true;
+
 		//	when destroying the arena, reset all pointers and run all destructors 
-		for (auto& p : gc_roots) 
-		{
+		for (auto& p : gc_roots) {
 			const_cast<gc_ptr_void*>(p)->reset();
 		}
-		for (auto& pg : pages) 
-		{
-			for (auto& p : pg.gc_ptrs) 
-			{
+		for (auto& pg : pages) {
+			for (auto& p : pg.gc_ptrs) {
 				const_cast<gc_ptr_void*>(p.p)->reset();
 			}
 		}
-		while (destructors.size() > 0) 
-		{
-			auto d = destructors.back();
-			//	=====================================================================
-			//  === BEGIN REENTRANCY-SAFE: ensure no in-progress use of private state
+		for (auto& d : destructors) {
+			//	calling outside code, but no reentrancy check necessary (see note above)
 			d.dtor(d.p);	// call object's destructor
-			//  === END REENTRANCY-SAFE: reload any stored copies of private state
-			//	=====================================================================
-			destructors.pop_back();
 		}
-		while (array_destructors.size() > 0) 
-		{
-			auto d = array_destructors.back();
-			for (std::size_t i = 0; i < d.n; ++i) 
-			{
-				//	=====================================================================
-				//  === BEGIN REENTRANCY-SAFE: ensure no in-progress use of private state
+		for (auto& d : array_destructors) {
+			for (std::size_t i = 0; i < d.n; ++i) {
+				//	calling outside code, but no reentrancy check necessary (see note above)
 				d.dtor(d.p + i);	// call object's destructor
-				//  === END REENTRANCY-SAFE: reload any stored copies of private state
-				//	=====================================================================
 			}
-			array_destructors.pop_back();
 		}
-
-		assert(destructors.size() == 0
-			&& "while destroying the gc_heap, destruction of remaining objects "
-			" caused a new object to have its nontrivial destructor registered");
-		//	Alternative to this assert:
-		//	Defensively, we could run more than one pass over the dtors just in case
-		//	any of the dtors did something to reallocate+register some object for
-		//	destruction (well-written code shouldn't use the arena while it's being
-		//	destroyed, but it doesn't hurt to be defensive)
-
 	}
 
 	//	Add this gc_ptr to the tracking list. Invoked when constructing a gc_ptr.
 	//
 	void gc_heap::enregister(const gc_ptr_void& p) {
 		//	append it to the back of the appropriate list
+		assert(!bDestroying 
+			&& "cannot allocate new objects on a gc_heap that is being destroyed");
 		auto pg = find_gcpage_of(p);
 		if (pg != nullptr) 
 		{
@@ -592,34 +576,31 @@ namespace gcpp {
 		}
 		else 
 		{
-			gc_roots.push_back(&p);
+			gc_roots.insert(&p);
 		}
 	}
 
 	//	Remove this gc_ptr from tracking. Invoked when destroying a gc_ptr.
 	//
 	void gc_heap::deregister(const gc_ptr_void& p) {
+		//	no need to actually deregister if we're tearing down this gc_heap
+		if (bDestroying) 
+			return;
+
 		//	find its entry, starting from the back because it's more 
 		//	likely to be there (newer objects tend to have shorter
 		//	lifetimes... all local gc_ptrs fall into this category,
 		//	and especially temporary gc_ptrs)
 		//
-		//	then remove it by moving back() here and popping
-		//
-		auto i = find(gc_roots.rbegin(), gc_roots.rend(), &p);
-		if (i != gc_roots.rend()) 
-		{
-			*i = gc_roots.back();
-			gc_roots.pop_back();
+		auto erased_count = gc_roots.erase(&p);
+		assert(erased_count < 2 && "duplicate registration");
+		if (erased_count > 0)
 			return;
-		}
 
-		for (auto& pg : pages) 
-		{
+		for (auto& pg : pages) {
 			auto j = find_if(pg.gc_ptrs.rbegin(), pg.gc_ptrs.rend(),
 				[&p](auto x) { return x.p == &p; });
-			if (j != pg.gc_ptrs.rend()) 
-			{
+			if (j != pg.gc_ptrs.rend()) {
 				*j = pg.gc_ptrs.back();
 				pg.gc_ptrs.pop_back();
 				return;
@@ -761,6 +742,7 @@ namespace gcpp {
 
 		//	first look through the single-objects list
 		{
+			//	move any destructors for objects in this range to a local list...
 			std::vector<destructor> to_destroy;
 			for (auto it = destructors.begin(); it != destructors.end(); /*--*/) {
 				if (start <= it->p && it->p < end) {
@@ -773,6 +755,7 @@ namespace gcpp {
 				}
 			}
 
+			//	... and execute them now that we're done using private state
 			for (auto& d : to_destroy) {
 				//	=====================================================================
 				//  === BEGIN REENTRANCY-SAFE: ensure no in-progress use of private state
@@ -784,6 +767,7 @@ namespace gcpp {
 
 		//	then look through in the arrays list
 		{
+			//	move any destructors for objects in this range to a local list...
 			std::vector<array_destructor> to_destroy;
 			for (auto it = array_destructors.begin(); it != array_destructors.end(); /*--*/) {
 				if (start <= it->p && it->p < end) {
@@ -796,6 +780,7 @@ namespace gcpp {
 				}
 			}
 
+			//	... and execute them now that we're done using private state
 			for (auto& d : to_destroy) {
 				for (std::size_t i = 0; i < d.n; ++i) {
 					//	=====================================================================
@@ -998,7 +983,8 @@ namespace gcpp {
 			}
 			std::cout << "\n";
 		}
-		std::cout << "  gc_roots.size() is " << gc_roots.size() << "\n";
+		std::cout << "  gc_roots.size() is " << gc_roots.size() 
+				  << ", load_factor is " << gc_roots.load_factor() << "\n";
 		for (auto& p : gc_roots) {
 			std::cout << "    " << (void*)p << " -> " << p->get() << "\n";
 		}
@@ -1008,7 +994,8 @@ namespace gcpp {
 		}
 		std::cout << "\n  array_destructors.size() is " << array_destructors.size() << "\n";
 		for (auto& d : array_destructors) {
-			std::cout << "    " << (void*)(d.p) << ", " << d.n << ", " << (void*)(d.dtor) << "\n";
+			std::cout << "    " << (void*)(d.p) << ", " 
+					  << d.n << ", " << (void*)(d.dtor) << "\n";
 		}
 		std::cout << "\n";
 	}

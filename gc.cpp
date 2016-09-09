@@ -181,7 +181,7 @@ void time_gc_gc(int N) {
 }
 
 void time_gc() {
-	for (int i = 10; i < 10000; i *= 2) {
+	for (int i = 10; i < 11000; i *= 2) {
 		time_gc_shared<int>(i);
 		time_gc_gc<int>(i);
 		//gc().debug_print();
@@ -250,36 +250,40 @@ void test_gc_allocator_set() {
 //----------------------------------------------------------------------------
 
 void test_gc_allocator_vector() {
-	vector<widget, gc_allocator<widget>> v;
-	auto iter = v.begin();
+	{
+		vector<widget, gc_allocator<widget>> v;
+		auto iter = v.begin();
 
-	auto old_capacity = v.capacity();
-	for (int i = 1; i <= 10; ++i) {
-		v.push_back({});
-		if (old_capacity != v.capacity()) {
-			cout << "RESIZED! new size is " << v.size()
-				<< " and capacity is " << v.capacity() << '\n';
-			old_capacity = v.capacity();
-			gc().debug_print();
+		auto old_capacity = v.capacity();
+		for (int i = 1; i <= 10; ++i) {
+			v.push_back(i);
+			if (old_capacity != v.capacity()) {
+				cout << "RESIZED! new size is " << v.size()
+					<< " and capacity is " << v.capacity() << '\n';
+				old_capacity = v.capacity();
+				gc().debug_print();
+			}
+			if (i == 3) {
+				iter = begin(v) + 1;	// keeps alive one of the vector buffers; on MSVC, points to an interior element
+			}
 		}
-		if (i == 3) {
-			iter = begin(v) + 1;	// keeps alive one of the vector buffers; on MSVC, points to an interior element
-		}
+
+		gc().collect();
+		gc().debug_print();	// now we have the current (largest) vector buffer alive, as well as
+							// one of the earlier smaller ones kept alive by i
+
+		iter = v.begin();	// now remove the last iterator referring to that earlier buffer
+
+		gc().collect();
+		gc().debug_print();	// now we have only the current buffer alive
+
+		v.pop_back();	// this logically removes the last element as usual, but does NOT destroy it
+		v.push_back(999);	// this destroys the element previously in that location before
+							// constructing the new one to avoid overlapping object lifetimes
+							// (this happens automatically inside construct())
 	}
-
 	gc().collect();
-	gc().debug_print();	// now we have the current (largest) vector buffer alive, as well as
-						// one of the earlier smaller ones kept alive by i
-
-	iter = v.begin();	// now remove the last iterator referring to that earlier buffer
-
-	gc().collect();
-	gc().debug_print();	// now we have only the current buffer alive
-
-	v.pop_back();	// this logically removes the last element as usual, but does NOT destroy it
-	v.push_back({});	// this destroys the element previously in that location before
-						// constructing the new one to avoid overlapping object lifetimes
-						// (this happens automatically inside construct())
+	gc().debug_print();
 }
 
 
