@@ -209,7 +209,9 @@ namespace gcpp {
 		//	extra location as a simple way to support one-past-the-end arithmetic)
 		const auto locations_needed = (1 + (bytes_needed - 1) / min_alloc) + (num > 1 ? 1 : 0);
 
-		const auto end = locations() - locations_needed + 1;
+		const auto end = locations() - locations_needed;
+		//	intentionally omitting "+1" here in order to keep the 
+		//	last location valid for one-past-the-end pointing
 
 		//	for each correctly aligned location candidate
 		std::size_t i = ((byte*)aligned_start - &storage[0]) / min_alloc;
