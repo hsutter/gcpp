@@ -1,3 +1,20 @@
+/////////////////////////////////////////////////////////////////////////////// 
+// 
+// Copyright (c) 2016 Herb Sutter. All rights reserved. 
+// 
+// This code is licensed under the MIT License (MIT). 
+// 
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN 
+// THE SOFTWARE. 
+// 
+///////////////////////////////////////////////////////////////////////////////
+
+
 #ifndef GCPP_GC
 #define GCPP_GC
 
@@ -535,6 +552,7 @@ namespace gcpp {
 	//
 	//----------------------------------------------------------------------------
 	//
+	inline
 	gc_heap::~gc_heap() 
 	{
 		//	Note: setting this flag lets us skip worrying about reentrancy;
@@ -565,6 +583,7 @@ namespace gcpp {
 
 	//	Add this gc_ptr to the tracking list. Invoked when constructing a gc_ptr.
 	//
+	inline
 	void gc_heap::enregister(const gc_ptr_void& p) {
 		//	append it to the back of the appropriate list
 		assert(!bDestroying 
@@ -582,6 +601,7 @@ namespace gcpp {
 
 	//	Remove this gc_ptr from tracking. Invoked when destroying a gc_ptr.
 	//
+	inline
 	void gc_heap::deregister(const gc_ptr_void& p) {
 		//	no need to actually deregister if we're tearing down this gc_heap
 		if (bDestroying) 
@@ -733,7 +753,8 @@ namespace gcpp {
 		);
 	}
 
-	bool gc_heap::destroy_objects(byte* start, byte* end) 
+	inline
+	bool gc_heap::destroy_objects(byte* start, byte* end)
 	{
 		assert(start < end && "start must precede end");
 		bool ret = false;
@@ -801,7 +822,8 @@ namespace gcpp {
 	//
 	//	collect, et al.: Sweep the GC arena
 	//
-	void gc_heap::mark(const void* p, std::size_t level) noexcept 
+	inline
+	void gc_heap::mark(const void* p, std::size_t level) noexcept
 	{
 		// if it isn't null ...
 		if (p == nullptr)
@@ -853,7 +875,8 @@ namespace gcpp {
 		}
 	}
 
-	void gc_heap::collect() 
+	inline
+	void gc_heap::collect()
 	{
 		//	1. reset all the mark bits and in-arena gc_ptr levels
 		//
@@ -971,7 +994,7 @@ namespace gcpp {
 
 	}
 
-
+	inline
 	void gc_heap::debug_print() const 
 	{
 		for (auto& pg : pages) {

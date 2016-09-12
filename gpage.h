@@ -1,13 +1,29 @@
+/////////////////////////////////////////////////////////////////////////////// 
+// 
+// Copyright (c) 2016 Herb Sutter. All rights reserved. 
+// 
+// This code is licensed under the MIT License (MIT). 
+// 
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN 
+// THE SOFTWARE. 
+// 
+///////////////////////////////////////////////////////////////////////////////
+
+
 #ifndef GCPP_GPAGE
 #define GCPP_GPAGE
 
-#define _ITERATOR_DEBUG_LEVEL 0
+#include "bitflags.h"
 
 #include <vector>
-#include <memory>
 #include <algorithm>
 #include <cassert>
-#include <climits>
+#include <memory>
 
 //#ifndef NDEBUG
 #include <iostream>
@@ -16,70 +32,11 @@
 
 namespace gcpp {
 
-	using byte = std::uint8_t;
-
-	//----------------------------------------------------------------------------
-	//
-	//	vector<bool> operations aren't always optimized, so here's a custom class.
-	//
-	//----------------------------------------------------------------------------
-
-	class bitflags {
-		const std::size_t size;
-		std::vector<byte> bits;
-
-	public:
-		bitflags(std::size_t bits, bool value) 
-			: size{ bits } 
-			, bits( 1 + size / sizeof(byte), value ? 0xFF : 0x00 )
-		{
-			// set_all(value); 
-		}
-
-		bool get(int at) const {
-			assert(0 <= at && at < size && "bitflags get() out of range");
-			return (bits[at / sizeof(byte)] & (1 << (at % sizeof(byte)))) > 0;
-		}
-
-		void set(int at, bool value) {
-			assert(0 <= at && at < size && "bitflags set() out of range");
-			if (value) {
-				bits[at / sizeof(byte)] |= (1 << (at % sizeof(byte)));
-			}
-			else {
-				bits[at / sizeof(byte)] &= (0xff ^ (1 << (at % sizeof(byte))));
-			}
-		}
-
-		void set_all(bool b) { 
-			std::fill(begin(bits), end(bits), b ? 0xff : 0x00); 
-		}
-
-		void set(int from, int to, bool value) {
-			// first set the remaining bits in the partial byte this range begins within
-			while (from < to && from % sizeof(byte) != 0) {
-				set(from++, value);
-			}
-
-			// then set whole bytes (makes a significant performance difference)
-			while (from < to && to - from >= sizeof(byte)) {
-				bits[from / sizeof(byte)] = value ? 0xFF : 0x00;
-				from += sizeof(byte);
-			}
-
-			// then set the remaining bits in the partial byte this range ends within
-			while (from < to) {
-				set(from++, value);
-			}
-		}
-	};
-
-
 	//----------------------------------------------------------------------------
 	//
 	//	gpage - One contiguous allocation
 	//
-	//  total_size	Total arena size (arena does not grow)
+	//  total_size	Total page size (page does not grow)
 	//  min_alloc	Minimum allocation size in bytes
 	//
 	//	storage		Underlying storage bytes
@@ -99,7 +56,7 @@ namespace gcpp {
 		bitflags						starts;
 		std::size_t						current_known_request_bound = total_size;
 
-		//	Disable copy and move
+		//	Copy and move and disabled by const unique_ptr member, but let's be explicit
 		//
 		gpage(gpage&) = delete;
 		void operator=(gpage&) = delete;
@@ -114,8 +71,7 @@ namespace gcpp {
 		//  Allocate space for num objects of type T
 		//
 		template<class T>
-		T* 
-		allocate(std::size_t num = 1) noexcept;
+		T* allocate(std::size_t num = 1) noexcept;
 
 		//  Return whether p points into this page's storage and is allocated.
 		//
@@ -167,14 +123,15 @@ namespace gcpp {
 
 	//	Construct a page with a given size and chunk size
 	//
-	inline gpage::gpage(std::size_t total_size_, std::size_t min_alloc_)
+	inline 
+	gpage::gpage(std::size_t total_size_, std::size_t min_alloc_)
 		//	total_size must be a multiple of min_alloc, so round up if necessary
 		: total_size(total_size_ +
 			(total_size_ % min_alloc_ > 0
 			? min_alloc_ - (total_size_ % min_alloc_)
 			: 0))
 		, min_alloc(min_alloc_)
-		, storage(new byte[total_size])
+		, storage(std::make_unique<byte[]>(total_size))
 		, inuse(total_size, false)
 		, starts(total_size, false)
 	{
@@ -256,7 +213,6 @@ namespace gcpp {
 	//  Return whether p points into this page's storage and is allocated.
 	//
 	template<class T>
-	inline
 	bool gpage::contains(T* p) const noexcept {
 		auto pp = reinterpret_cast<const byte*>(p);
 		return (&storage[0] <= pp && pp < &storage[total_size - 1]);
@@ -297,7 +253,8 @@ namespace gcpp {
 
 	//  Return whether there is an allocation starting at this location.
 	//
-	inline gpage::location_info_ret
+	inline 
+	gpage::location_info_ret
 	gpage::location_info(std::size_t where) const noexcept {
 		return{ starts.get(where), &storage[where*min_alloc] };
 	}
@@ -348,6 +305,7 @@ namespace gcpp {
 
 	//	Debugging support
 	//
+	inline
 	std::string lowest_hex_digits_of_address(byte* p, int num = 1) {
 		assert(0 < num && num < 9 && "number of digits must be 0..8");
 		static const char digits[] = "0123456789ABCDEF";
@@ -361,6 +319,7 @@ namespace gcpp {
 		return ret;
 	}
 
+	inline
 	void gpage::debug_print() const {
 		auto base = &storage[0];
 		std::cout << "--- total_size " << total_size << " --- min_alloc " << min_alloc
