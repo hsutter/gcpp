@@ -278,24 +278,23 @@ namespace gcpp {
 		starts.set(here, false);
 
 		// scan 'starts' to find the start of the following allocation, if any
-		//	TODO replace with find_if
+		//	TODO replace this loop with a function call
 		auto next_start = here + 1;
 		for (; next_start < locations(); ++next_start) {
 			if (starts.get(next_start))
 				break;
 		}
 
-		//	optimization: we now have an unallocated gap (the deallocated bytes +
-		//	whatever unallocated space followed it before the start of the next
-		//	allocation), so remember that
-		auto bytes_unallocated_here = (next_start - here) * min_alloc;
-		current_known_request_bound =
-			std::max(current_known_request_bound, bytes_unallocated_here);
+		//	optimization: spill the cached bound (we could also scan backwards to
+		//	find the end of the previous allocation to see exactly how big this
+		//	new hole is, and update the cached bound if the hole is bigger, but
+		//	that would be incurring extra work)
+		current_known_request_bound = total_size;
 
 		//	scan 'inuse' to find the end of this allocation
 		//		== one past the last location in-use before the next_start
 		//	and flip the allocated bits as we go to erase the allocation record
-		//	TODO is there a std::algorithm we could use to replace this loop?
+		//	TODO replace this loop with a function call
 		while (here < next_start && inuse.get(here)) {
 			inuse.set(here, false);
 			++here;

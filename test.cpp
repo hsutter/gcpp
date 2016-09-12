@@ -135,8 +135,7 @@ void test_gc() {
 	//v.emplace_back(make_gc<int>());
 	//gc().debug_print();
 
-	//v.erase(v.begin() + 1);
-	//gc().debug_print();
+	//v.erase(v.begin() + 1);//gc().debug_print();
 
 	auto x = make_gc<node>();
 	x->plugh = make_gc<node>();
@@ -253,6 +252,8 @@ void test_gc_allocator_set() {
 
 void test_gc_allocator_vector() {
 	{
+		gc().set_collect_before_expand(true);
+
 		vector<widget, gc_allocator<widget>> v;
 		auto iter = v.begin();
 
@@ -265,7 +266,7 @@ void test_gc_allocator_vector() {
 				old_capacity = v.capacity();
 				gc().debug_print();
 			}
-			if (i == 3) {
+			if (i == 1) {
 				iter = begin(v) + 1;	// keeps alive one of the vector buffers; on MSVC, points to an interior element
 			}
 		}
@@ -365,22 +366,22 @@ void test_gc_array() {
 
 
 int main() {
-	test_page();
+	//test_page();
 
-	test_gc();
-	time_gc();
+	//test_gc();
+	//time_gc();
 
-	test_gc_allocator();
+	//test_gc_allocator();
 
-	test_gc_allocator_set();
-	time_gc_allocator_set();
+	//test_gc_allocator_set();
+	//time_gc_allocator_set();
 
 	test_gc_allocator_vector();
-	time_gc_allocator_vector();
+	//time_gc_allocator_vector();
 
-	test_gc_array();
+	//test_gc_array();
 
-	gc().collect();
-	gc().debug_print();
+	//gc().collect();
+	//gc().debug_print();
 }
 

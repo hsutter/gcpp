@@ -144,7 +144,8 @@ namespace gcpp {
 		std::unordered_set<const gc_ptr_void*>	gc_roots;	// outside GC arena
 		std::vector<destructor>					destructors;
 		std::vector<array_destructor>			array_destructors;
-		bool bDestroying = false;
+		bool is_destroying = false;
+		bool collect_before_expand = false;
 
 	public:
 		//------------------------------------------------------------------------
@@ -198,7 +199,10 @@ namespace gcpp {
 		template<class T> 
 		find_gcpage_info_ret find_gcpage_info(T& x) noexcept;
 
-		template<class T> 
+		template<class T>
+		T* allocate_from_existing_pages(std::size_t n);
+			
+		template<class T>
 		gc_ptr<T> allocate(std::size_t n = 1);
 
 		template<class T, class ...Args> 
@@ -226,6 +230,14 @@ namespace gcpp {
 
 	public:
 		void collect();
+
+		auto get_collect_before_expand() {
+			return collect_before_expand;
+		}
+
+		void set_collect_before_expand(bool enable = false) {
+			collect_before_expand = enable;
+		}
 
 		void debug_print() const;
 
@@ -558,7 +570,7 @@ namespace gcpp {
 		//	Note: setting this flag lets us skip worrying about reentrancy;
 		//	a destructor may not allocate a new object (which would try to
 		//	enregister and therefore change our data structurs)
-		bDestroying = true;
+		is_destroying = true;
 
 		//	when destroying the arena, reset all pointers and run all destructors 
 		for (auto& p : gc_roots) {
@@ -586,7 +598,7 @@ namespace gcpp {
 	inline
 	void gc_heap::enregister(const gc_ptr_void& p) {
 		//	append it to the back of the appropriate list
-		assert(!bDestroying 
+		assert(!is_destroying 
 			&& "cannot allocate new objects on a gc_heap that is being destroyed");
 		auto pg = find_gcpage_of(p);
 		if (pg != nullptr) 
@@ -604,7 +616,7 @@ namespace gcpp {
 	inline
 	void gc_heap::deregister(const gc_ptr_void& p) {
 		//	no need to actually deregister if we're tearing down this gc_heap
-		if (bDestroying) 
+		if (is_destroying) 
 			return;
 
 		//	find its entry, starting from the back because it's more 
@@ -663,14 +675,26 @@ namespace gcpp {
 	}
 
 	template<class T>
-	gc_ptr<T> gc_heap::allocate(std::size_t n) 
-	{
-		//	get raw memory from the backing storage...
+	T* gc_heap::allocate_from_existing_pages(std::size_t n) {
 		T* p = nullptr;
 		for (auto& pg : pages) {
 			p = pg.page.allocate<T>(n);
 			if (p != nullptr)
 				break;
+		}
+		return p;
+	}
+
+	template<class T>
+	gc_ptr<T> gc_heap::allocate(std::size_t n) 
+	{
+		//	get raw memory from the backing storage...
+		T* p = allocate_from_existing_pages<T>(n);
+
+		//	... performing a collection if necessary ...
+		if (p == nullptr && collect_before_expand) {
+			collect();
+			p = allocate_from_existing_pages<T>(n);
 		}
 
 		//	... allocating another page if necessary
@@ -680,9 +704,7 @@ namespace gcpp {
 			p = pages.back().page.allocate<T>(n);
 		}
 
-		if (p == nullptr) {
-			throw std::bad_alloc();
-		}
+		assert(p != nullptr && "failed to allocate but didn't throw an exception");
 		return p;
 	}
 
