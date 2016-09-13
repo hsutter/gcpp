@@ -1,6 +1,6 @@
-# **gcpp**: A GC heap allocation library for C++
+# **gcpp**: An experimental toy GC heap allocation library for C++
 
-Herb Sutter -- Updated 2016-09-01
+Herb Sutter -- Updated 2016-09-12
 
 ## Overview, goals, and non-goals
 
