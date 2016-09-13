@@ -29,6 +29,97 @@
 
 namespace gcpp {
 
+	//  destructor contains a pointer and type-correct-but-erased dtor call.
+	//  (Happily, a noncapturing lambda decays to a function pointer, which
+	//	will make these both easy to construct and cheap to store without
+	//	resorting to the usual type-erasure machinery.)
+	//
+	class destructors {
+		struct destructor {
+			const byte* p;
+			std::size_t n;
+			void(*destroy)(const void*);
+		};
+		std::vector<destructor>	dtors;
+
+	public:
+		//	Store the destructor, if it's not trivial
+		//
+		template<class T>
+		void store(T* p, std::size_t num = 1) {
+			assert(p != nullptr && num > 0
+				&& "no object to register for destruction");
+			if (!std::is_trivially_destructible<T>::value) {
+				dtors.push_back({
+					(byte*)p,								// address p
+					num,
+					[](const void* x) { ((T*)x)->~T(); }	// dtor to invoke with p
+				});
+			}
+		}
+
+		//	Inquire whether there is a destructor registered for p
+		//
+		template<class T>
+		bool is_stored(T* p) noexcept {
+			return std::is_trivially_destructible<T>::value
+				|| std::find_if(dtors.begin(), dtors.end(), 
+					[=](auto x) { return x.p == (byte*)p; }) != dtors.end();
+		}
+
+		//	Run all the destructors and clear the list
+		//
+		void run_all() {
+			for (auto& d : dtors) {
+				for (std::size_t i = 0; i < d.n; ++i) {
+					d.destroy(d.p + i);	// call object's destructor
+				}
+			}
+			dtors.clear();	// this should just be an assignment to the vector's #used count
+		}					// since all the contained objects are trivially destructible
+
+		//	Runn all the destructors for objects in [begin,end)
+		//
+		bool run(byte* begin, byte* end) {
+			assert(begin < end && "begin must precede end");
+			bool ret = false;
+
+			//	for reentrancy safety, we'll take a local copy of destructors to be run
+			//
+			//	first, move any destructors for objects in this range to a local list...
+			//
+			std::vector<destructor> to_destroy;
+			for (auto it = dtors.begin(); it != dtors.end(); /*--*/) {
+				if (begin <= it->p && it->p < end) {
+					to_destroy.push_back(*it);
+					it = dtors.erase(it);
+					ret = true;
+				}
+				else {
+					++it;
+				}
+			}
+
+			//	... then, execute them now that we're done using private state
+			//
+			for (auto& d : to_destroy) {
+				for (std::size_t i = 0; i < d.n; ++i) {
+					//	=====================================================================
+					//  === BEGIN REENTRANCY-SAFE: ensure no in-progress use of private state
+					d.destroy(d.p + i);	// call each object's destructor
+					//  === END REENTRANCY-SAFE: reload any stored copies of private state
+					//	=====================================================================
+				}
+			}
+
+			//	else there wasn't a nontrivial destructor
+			return ret;
+		}
+
+		void debug_print() const;
+	};
+
+
 	//----------------------------------------------------------------------------
 	//
 	//	The GC arena produces gc_ptr<T>s via make<T>.
@@ -89,22 +180,6 @@ namespace gcpp {
 			void  reset() noexcept { p = nullptr; }
 		};
 
-		//  destructor contains a pointer and type-correct-but-erased dtor call.
-		//  (Happily, a noncapturing lambda decays to a function pointer, which
-		//	will make these both easy to construct and cheap to store without
-		//	resorting to the usual type-erasure machinery.)
-		//
-		struct destructor {
-			const byte* p;
-			void (*dtor)(const void*);
-		};
-
-		struct array_destructor {
-			const byte* p;
-			std::size_t n;
-			void(*dtor)(const void*);
-		};
-
 		//	For non-roots (gc_ptrs that are in the GC arena), we'll additionally
 		//	store an int that we'll use for terminating marking within the GC heap.
 		//  The level is the distance from some root -- not necessarily the smallest
@@ -130,7 +205,7 @@ namespace gcpp {
 			//
 			template<class Hint>
 			gcpage(const Hint* /*--*/, size_t n)
-				: page{ std::max<size_t>(sizeof(Hint) * n * 2.62, 8192 /*for debugging; TODO: 65536*/), 
+				: page{ std::max<size_t>(sizeof(Hint) * n * 2.62, 128 /*for debugging; TODO: 65536*/), 
 						std::max<size_t>(sizeof(Hint), 4) }
 				, live_starts(page.locations(), false)
 			{ }
@@ -142,8 +217,7 @@ namespace gcpp {
 		//
 		std::list<gcpage>						pages;
 		std::unordered_set<const gc_ptr_void*>	gc_roots;	// outside GC arena
-		std::vector<destructor>					destructors;
-		std::vector<array_destructor>			array_destructors;
+		destructors								dtors;
 		bool is_destroying = false;
 		bool collect_before_expand = false;
 
@@ -210,12 +284,6 @@ namespace gcpp {
 
 		template<class T> 
 		void construct_array(T* p, std::size_t n);
-
-		template<class T, class Coll>
-		auto find_destructor(T* p, const Coll& coll) noexcept {
-			return std::find_if(std::begin(coll), std::end(coll),
-				[=](auto x) { return x.p == (byte*)p; });
-		}
 
 		template<class T> 
 		void destroy(T* p) noexcept;
@@ -573,24 +641,20 @@ namespace gcpp {
 		is_destroying = true;
 
 		//	when destroying the arena, reset all pointers and run all destructors 
+		//
 		for (auto& p : gc_roots) {
 			const_cast<gc_ptr_void*>(p)->reset();
 		}
+
 		for (auto& pg : pages) {
 			for (auto& p : pg.gc_ptrs) {
 				const_cast<gc_ptr_void*>(p.p)->reset();
 			}
 		}
-		for (auto& d : destructors) {
-			//	calling outside code, but no reentrancy check necessary (see note above)
-			d.dtor(d.p);	// call object's destructor
-		}
-		for (auto& d : array_destructors) {
-			for (std::size_t i = 0; i < d.n; ++i) {
-				//	calling outside code, but no reentrancy check necessary (see note above)
-				d.dtor(d.p + i);	// call object's destructor
-			}
-		}
+
+		//	this calls user code (the dtors), but no reentrancy care is 
+		//	necessary per note above
+		dtors.run_all();
 	}
 
 	//	Add this gc_ptr to the tracking list. Invoked when constructing a gc_ptr.
@@ -725,13 +789,8 @@ namespace gcpp {
 		//  === END REENTRANCY-SAFE: reload any stored copies of private state
 		//	=====================================================================
 
-		//	... and store the destructor, if it's not trivial
-		if (!std::is_trivially_destructible<T>::value) {
-			destructors.push_back({
-				(byte*)p,								// address p
-				[](const void* x) { ((T*)x)->~T(); }	// dtor to invoke with p
-			});
-		}
+		//	... and store the destructor
+		dtors.store(p);
 	}
 
 	template<class T>
@@ -753,91 +812,20 @@ namespace gcpp {
 			//	=====================================================================
 		}
 
-		//	... and store the destructor, if it's not trivial
-		if (!std::is_trivially_destructible<T>::value) {
-			array_destructors.push_back({
-				(byte*)p,								// address p
-				n,										// count n
-				[](const void* x) { ((T*)x)->~T(); }	// dtor to invoke with p
-			});
-		}
+		//	... and store the destructor
+		dtors.store(p, n);
 	}
 
 	template<class T>
 	void gc_heap::destroy(T* p) noexcept 
 	{
-		assert(
-			(p == nullptr
-				|| std::is_trivially_destructible<T>::value
-				|| find_destructor(p, destructors) != end(destructors)
-				)
-			&& "attempt to destroy an object whose destructor is not registered"
-		);
+		assert((p == nullptr || dtors.is_stored(p))
+			&& "attempt to destroy an object whose destructor is not registered");
 	}
 
 	inline
-	bool gc_heap::destroy_objects(byte* start, byte* end)
-	{
-		assert(start < end && "start must precede end");
-		bool ret = false;
-
-		//	for reentrancy safety, we'll take a local copy of destructors to be run
-
-		//	first look through the single-objects list
-		{
-			//	move any destructors for objects in this range to a local list...
-			std::vector<destructor> to_destroy;
-			for (auto it = destructors.begin(); it != destructors.end(); /*--*/) {
-				if (start <= it->p && it->p < end) {
-					to_destroy.push_back(*it);
-					it = destructors.erase(it);
-					ret = true;
-				}
-				else {
-					++it;
-				}
-			}
-
-			//	... and execute them now that we're done using private state
-			for (auto& d : to_destroy) {
-				//	=====================================================================
-				//  === BEGIN REENTRANCY-SAFE: ensure no in-progress use of private state
-				d.dtor(d.p);
-				//  === END REENTRANCY-SAFE: reload any stored copies of private state
-				//	=====================================================================
-			}
-		}
-
-		//	then look through in the arrays list
-		{
-			//	move any destructors for objects in this range to a local list...
-			std::vector<array_destructor> to_destroy;
-			for (auto it = array_destructors.begin(); it != array_destructors.end(); /*--*/) {
-				if (start <= it->p && it->p < end) {
-					to_destroy.push_back(*it);
-					it = array_destructors.erase(it);
-					ret = true;
-				}
-				else {
-					++it;
-				}
-			}
-
-			//	... and execute them now that we're done using private state
-			for (auto& d : to_destroy) {
-				for (std::size_t i = 0; i < d.n; ++i) {
-					//	=====================================================================
-					//  === BEGIN REENTRANCY-SAFE: ensure no in-progress use of private state
-					d.dtor(d.p + i);	// call each object's destructor
-					//  === END REENTRANCY-SAFE: reload any stored copies of private state
-					// TODO REENTRANCY-UNSAFE
-					//	=====================================================================
-				}
-			}
-		}
-
-		//	else there wasn't a nontrivial destructor
-		return ret;
+	bool gc_heap::destroy_objects(byte* start, byte* end) {
+		return dtors.run(start, end);
 	}
 
 	//------------------------------------------------------------------------
@@ -975,7 +963,7 @@ namespace gcpp {
 		//	better in all these respects by directly enforcing those learnings
 		//	in the design, thus eliminating large classes of errors while also
 		//	minimizing complexity by inventing no new concepts other than
-		//	the rule "gc_ptrs can be null in destructors."
+		//	the rule "gc_ptrs can be null in dtors."
 		//
 		for (auto& pg : pages) {
 			for (auto& gcp : pg.gc_ptrs) {
@@ -1017,6 +1005,16 @@ namespace gcpp {
 	}
 
 	inline
+	void destructors::debug_print() const {
+		std::cout << "\n  destructors size() is " << dtors.size() << "\n";
+		for (auto& d : dtors) {
+			std::cout << "    " << (void*)(d.p) << ", "
+				<< d.n << ", " << (void*)(d.destroy) << "\n";
+		}
+		std::cout << "\n";
+	}
+
+	inline
 	void gc_heap::debug_print() const 
 	{
 		for (auto& pg : pages) {
@@ -1033,18 +1031,8 @@ namespace gcpp {
 		for (auto& p : gc_roots) {
 			std::cout << "    " << (void*)p << " -> " << p->get() << "\n";
 		}
-		std::cout << "\n  destructors.size() is " << destructors.size() << "\n";
-		for (auto& d : destructors) {
-			std::cout << "    " << (void*)(d.p) << ", " << (void*)(d.dtor) << "\n";
-		}
-		std::cout << "\n  array_destructors.size() is " << array_destructors.size() << "\n";
-		for (auto& d : array_destructors) {
-			std::cout << "    " << (void*)(d.p) << ", " 
-					  << d.n << ", " << (void*)(d.dtor) << "\n";
-		}
-		std::cout << "\n";
+		dtors.debug_print();
 	}
-
 
 }
 
