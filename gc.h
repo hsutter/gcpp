@@ -37,6 +37,7 @@ namespace gcpp {
 	class destructors {
 		struct destructor {
 			const byte* p;
+			std::size_t size;
 			std::size_t n;
 			void(*destroy)(const void*);
 		};
@@ -52,6 +53,7 @@ namespace gcpp {
 			if (!std::is_trivially_destructible<T>::value) {
 				dtors.push_back({
 					(byte*)p,								// address p
+					sizeof(T),
 					num,
 					[](const void* x) { ((T*)x)->~T(); }	// dtor to invoke with p
 				});
@@ -72,7 +74,7 @@ namespace gcpp {
 		void run_all() {
 			for (auto& d : dtors) {
 				for (std::size_t i = 0; i < d.n; ++i) {
-					d.destroy(d.p + i);	// call object's destructor
+					d.destroy(d.p + d.size*i);	// call object's destructor
 				}
 			}
 			dtors.clear();	// this should just be an assignment to the vector's #used count
@@ -106,7 +108,7 @@ namespace gcpp {
 				for (std::size_t i = 0; i < d.n; ++i) {
 					//	=====================================================================
 					//  === BEGIN REENTRANCY-SAFE: ensure no in-progress use of private state
-					d.destroy(d.p + i);	// call each object's destructor
+					d.destroy(d.p + d.size*i);	// call object's destructor
 					//  === END REENTRANCY-SAFE: reload any stored copies of private state
 					//	=====================================================================
 				}
@@ -392,7 +394,13 @@ namespace gcpp {
 			return gc_ptr<T>(&t);
 		}
 
-		//	Checked pointer arithmetic
+
+		// this is the right way to do totally ordered comparisons, maybe someday it'll be standard
+		int compare3(const gc_ptr& that) const { return get() < that.get() ? -1 : get() == that.get() ? 0 : 1; };
+		GCPP_TOTALLY_ORDERED_COMPARISON(gc_ptr);	// maybe someday this will be default
+													
+													
+		//	Checked pointer arithmetic -- TODO this should probably go into a separate array_gc_ptr type
 		//
 		gc_ptr& operator+=(int offset) noexcept {
 #ifndef NDEBUG
@@ -587,28 +595,6 @@ namespace gcpp {
 			return get(); 
 		}
 	};
-
-	//	Provide comparisons
-
-	template<class T>
-	bool operator==(const gc_ptr<T>& a, const gc_ptr<T>& b) noexcept {
-		return a.get() == b.get();
-	}
-
-	template<class T>
-	bool operator!=(const gc_ptr<T>& a, const gc_ptr<T>& b) noexcept {
-		return !(a == b);
-	}
-
-	template<class T>
-	bool operator==(const gc_ptr<T>& a, std::nullptr_t) noexcept {
-		return a.get() == nullptr;
-	}
-
-	template<class T>
-	bool operator!=(const gc_ptr<T>& a, std::nullptr_t) noexcept {
-		return a.get() != nullptr;
-	}
 
 
 	//	Allocate one object of type T initialized with args

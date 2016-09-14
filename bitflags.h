@@ -18,15 +18,13 @@
 #ifndef GCPP_BITFLAGS
 #define GCPP_BITFLAGS
 
-#define _ITERATOR_DEBUG_LEVEL 0
+#include "util.h"
 
 #include <vector>
 #include <algorithm>
 #include <cassert>
 
 namespace gcpp {
-
-	using byte = std::uint8_t;
 
 	//----------------------------------------------------------------------------
 	//
