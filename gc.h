@@ -207,7 +207,7 @@ namespace gcpp {
 			//
 			template<class Hint>
 			gcpage(const Hint* /*--*/, size_t n)
-				: page{ std::max<size_t>(sizeof(Hint) * n * 2.62, 128 /*for debugging; TODO: 65536*/), 
+				: page{ std::max<size_t>(sizeof(Hint) * n * 2.62, 4096 /*good general default*/), 
 						std::max<size_t>(sizeof(Hint), 4) }
 				, live_starts(page.locations(), false)
 			{ }
