@@ -360,7 +360,7 @@ int main() {
 	//test_page();
 
 	//test_gc();
-	//time_gc();
+	time_gc();
 
 	//test_gc_allocator();
 
@@ -368,7 +368,7 @@ int main() {
 	//time_gc_allocator_set();
 
 	//test_gc_allocator_vector();
-	time_gc_allocator_vector();
+	//time_gc_allocator_vector();
 
 	//test_gc_array();
 
