@@ -1,9 +1,9 @@
-#ifndef GCPP_GCPP
-#define GCPP_GCPP
+#ifndef GALLOC_GALLOC
+#define GALLOC_GALLOC
 
 #include "gpage.h"
 
-namespace gcpp {
+namespace galloc {
 
 	//----------------------------------------------------------------------------
 	//

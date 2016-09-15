@@ -16,8 +16,8 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 
-#ifndef GCPP_GC
-#define GCPP_GC
+#ifndef GALLOC_GC
+#define GALLOC_GC
 
 #include "gpage.h"
 
@@ -28,7 +28,7 @@
 #include <type_traits>
 #include <memory>
 
-namespace gcpp {
+namespace galloc {
 
 	//  destructor contains a pointer and type-correct-but-erased dtor call.
 	//  (Happily, a noncapturing lambda decays to a function pointer, which
@@ -130,15 +130,15 @@ namespace gcpp {
 	//----------------------------------------------------------------------------
 
 	class gc_heap {
-		friend gc_heap& gc();	// TODO
+		friend gc_heap& global_deferred_heap();	// TODO
 
 		class  gc_ptr_void;
 		friend class gc_ptr_void;
 
 		template<class T> friend class gc_ptr;
-		template<class T> friend class gc_allocator;
+		template<class T> friend class deferred_allocator;
 
-		//	TODO Can only be used via the global gc() accessor.
+		//	TODO Can only be used via the global global_deferred_heap() accessor.
 		gc_heap()  			  = default;
 		~gc_heap();
 
@@ -165,11 +165,11 @@ namespace gcpp {
 			gc_ptr_void(void* p_ = nullptr)
 				: p(p_)
 			{
-				gc().enregister(*this);
+				global_deferred_heap().enregister(*this);
 			}
 
 			~gc_ptr_void() {
-				gc().deregister(*this);
+				global_deferred_heap().deregister(*this);
 			}
 
 			gc_ptr_void(const gc_ptr_void& that)
@@ -261,7 +261,7 @@ namespace gcpp {
 		//	Core allocator functions: allocate, construct, destroy
 		//	(not deallocate, which is done at collection time)
 		//
-		//	There are private, for use via gc_allocator only
+		//	There are private, for use via deferred_allocator only
 
 		//  Helper: Return the gcpage on which this object exists.
 		//	If the object is not in our storage, returns null.
@@ -398,7 +398,7 @@ namespace gcpp {
 
 		// this is the right way to do totally ordered comparisons, maybe someday it'll be standard
 		int compare3(const gc_ptr& that) const { return get() < that.get() ? -1 : get() == that.get() ? 0 : 1; };
-		GCPP_TOTALLY_ORDERED_COMPARISON(gc_ptr);	// maybe someday this will be default
+		GALLOC_TOTALLY_ORDERED_COMPARISON(gc_ptr);	// maybe someday this will be default
 													
 													
 		//	Checked pointer arithmetic -- TODO this should probably go into a separate array_gc_ptr type
@@ -408,7 +408,7 @@ namespace gcpp {
 			assert(get() != nullptr 
 				&& "bad gc_ptr arithmetic: can't perform arithmetic on a null pointer");
 
-			auto this_info = gc().find_gcpage_info(get());
+			auto this_info = global_deferred_heap().find_gcpage_info(get());
 
 			assert(this_info.page != nullptr
 				&& "corrupt non-null gc_ptr, not pointing into gc arena");
@@ -417,7 +417,7 @@ namespace gcpp {
 				&& "corrupt non-null gc_ptr, pointing to unallocated memory");
 
 			auto temp = get() + offset;
-			auto temp_info = gc().find_gcpage_info(temp);
+			auto temp_info = global_deferred_heap().find_gcpage_info(temp);
 
 			assert(this_info.page == temp_info.page 
 				&& "bad gc_ptr arithmetic: attempt to leave gcpage");
@@ -490,8 +490,8 @@ namespace gcpp {
 			assert(get() != nullptr && that.get() != nullptr
 				&& "bad gc_ptr arithmetic: can't subtract pointers when one is null");
 
-			auto this_info = gc().find_gcpage_info(get());
-			auto that_info = gc().find_gcpage_info(that.get());
+			auto this_info = global_deferred_heap().find_gcpage_info(get());
+			auto that_info = global_deferred_heap().find_gcpage_info(that.get());
 
 			assert(this_info.page != nullptr
 				&& that_info.page != nullptr
@@ -602,14 +602,14 @@ namespace gcpp {
 	//
 	template<class T, class ...Args>
 	gc_ptr<T> make_gc(Args&&... args) {
-		return gc().make<T>( std::forward<Args>(args)... );
+		return global_deferred_heap().make<T>( std::forward<Args>(args)... );
 	}
 
 	//	Allocate an array of n objects of type T
 	//
 	template<class T>
 	gc_ptr<T> make_gc_array(std::size_t n) {
-		return gc().make_array<T>(n);
+		return global_deferred_heap().make_array<T>(n);
 	}
 
 

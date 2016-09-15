@@ -16,8 +16,8 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 
-#ifndef GCPP_GPAGE
-#define GCPP_GPAGE
+#ifndef GALLOC_GPAGE
+#define GALLOC_GPAGE
 
 #include "bitflags.h"
 
@@ -31,7 +31,7 @@
 #include <string>
 //#endif
 
-namespace gcpp {
+namespace galloc {
 
 	//----------------------------------------------------------------------------
 	//

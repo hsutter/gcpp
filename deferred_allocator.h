@@ -16,23 +16,23 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 
-#ifndef GCALLOC_GCPP
-#define GCALLOC_GCPP
+#ifndef GALLOC_GALLOC
+#define GALLOC_GALLOC
 
-#include "gc.h"
+#include "deferred_heap.h"
 
-namespace gcpp {
+namespace galloc {
 
 	//----------------------------------------------------------------------------
 	//
-	//	gc_allocator - wrap up gc() as a C++14 allocator, with thanks to
+	//	deferred_allocator - wrap up global_deferred_heap() as a C++14 allocator, with thanks to
 	//			 Howard Hinnant's allocator boilerplate exemplar code, online at
 	//           https://howardhinnant.github.io/allocator_boilerplate.html
 	//
 	//----------------------------------------------------------------------------
 
 	template <class T>
-	class gc_allocator
+	class deferred_allocator
 	{
 	public:
 		using value_type         = T;
@@ -46,21 +46,21 @@ namespace gcpp {
 		template <class U> 
 		struct rebind 
 		{
-			using other = gc_allocator<U>;
+			using other = deferred_allocator<U>;
 		};
 
-		gc_allocator() noexcept 
+		deferred_allocator() noexcept 
 		{
 		}
 
 		template <class U> 
-		gc_allocator(gc_allocator<U> const&) noexcept 
+		deferred_allocator(deferred_allocator<U> const&) noexcept 
 		{
 		}
 
 		pointer allocate(size_type n) 
 		{
-			return gc().allocate<value_type>(n);
+			return global_deferred_heap().allocate<value_type>(n);
 		}
 
 		void deallocate(pointer, size_type) noexcept
@@ -75,13 +75,13 @@ namespace gcpp {
 		template <class U, class ...Args>
 		void construct(U* p, Args&& ...args) 
 		{
-			gc().construct(p, std::forward<Args>(args)...);
+			global_deferred_heap().construct(p, std::forward<Args>(args)...);
 		}
 
 		template <class U>
 		void destroy(U* p) noexcept
 		{
-			gc().destroy(p);
+			global_deferred_heap().destroy(p);
 		}
 
 		size_type max_size() const noexcept 
@@ -89,7 +89,7 @@ namespace gcpp {
 			return std::numeric_limits<size_type>::max();
 		}
 
-		gc_allocator select_on_container_copy_construction() const 
+		deferred_allocator select_on_container_copy_construction() const 
 		{
 			return *this;	// TODO gc_heap is currently not copyable
 		}
@@ -101,13 +101,13 @@ namespace gcpp {
 	};
 
 	template <class T, class U>
-	inline bool operator==(gc_allocator<T> const&, gc_allocator<U> const&) noexcept 
+	inline bool operator==(deferred_allocator<T> const&, deferred_allocator<U> const&) noexcept 
 	{
 		return true;
 	}
 
 	template <class T, class U>
-	inline bool operator!=(gc_allocator<T> const& x, gc_allocator<U> const& y) noexcept
+	inline bool operator!=(deferred_allocator<T> const& x, deferred_allocator<U> const& y) noexcept
 	{
 		return !(x == y);
 	}

@@ -15,8 +15,8 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 
-#ifndef GCPP_BITFLAGS
-#define GCPP_BITFLAGS
+#ifndef GALLOC_BITFLAGS
+#define GALLOC_BITFLAGS
 
 #include "util.h"
 
@@ -24,7 +24,7 @@
 #include <algorithm>
 #include <cassert>
 
-namespace gcpp {
+namespace galloc {
 
 	//----------------------------------------------------------------------------
 	//

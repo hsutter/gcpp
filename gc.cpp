@@ -15,13 +15,13 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 
-#include "gc.h"
+#include "deferred_heap.h"
 
-namespace gcpp {
+namespace galloc {
 
 	//	For now, there's just one global gc_heap (will allow multiple local gc_heaps soon)
 	//
-	gc_heap& gc() {
+	gc_heap& global_deferred_heap() {
 		static gc_heap the_arena;
 		return the_arena;
 	}
