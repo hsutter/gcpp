@@ -1,3 +1,4 @@
+
 /////////////////////////////////////////////////////////////////////////////// 
 // 
 // Copyright (c) 2016 Herb Sutter. All rights reserved. 
@@ -59,7 +60,6 @@ struct widget {
 
 	operator long() const { return v; }
 
-	// this is the right way to do totally ordered comparisons, maybe someday it'll be standard
 	int compare3(const widget& that) const { return v < that.v ? -1 : v == that.v ? 0 : 1; };
 	GCPP_TOTALLY_ORDERED_COMPARISON(widget);	// maybe someday this will be default
 };
@@ -360,11 +360,11 @@ int main() {
 	//test_page();
 
 	//test_gc();
-	time_gc();
+	//time_gc();
 
 	//test_gc_allocator();
 
-	//test_gc_allocator_set();
+	test_gc_allocator_set();
 	//time_gc_allocator_set();
 
 	//test_gc_allocator_vector();
@@ -372,7 +372,7 @@ int main() {
 
 	//test_gc_array();
 
-	//gc().collect();
-	//gc().debug_print();
+	gc().collect();
+	gc().debug_print();
 }
 

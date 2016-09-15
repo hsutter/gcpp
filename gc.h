@@ -1,3 +1,4 @@
+
 /////////////////////////////////////////////////////////////////////////////// 
 // 
 // Copyright (c) 2016 Herb Sutter. All rights reserved. 
@@ -266,14 +267,14 @@ namespace gcpp {
 		//	If the object is not in our storage, returns null.
 		//
 		template<class T>
-		gcpage* find_gcpage_of(T& x) noexcept;
+		gcpage* find_gcpage_of(T* p) noexcept;
 
 		struct find_gcpage_info_ret {
 			gcpage* page = nullptr;
 			gpage::contains_info_ret info;
 		};
 		template<class T> 
-		find_gcpage_info_ret find_gcpage_info(T& x) noexcept;
+		find_gcpage_info_ret find_gcpage_info(T* p) noexcept;
 
 		template<class T>
 		T* allocate_from_existing_pages(std::size_t n);
@@ -407,7 +408,7 @@ namespace gcpp {
 			assert(get() != nullptr 
 				&& "bad gc_ptr arithmetic: can't perform arithmetic on a null pointer");
 
-			auto this_info = gc().find_gcpage_info(*get());
+			auto this_info = gc().find_gcpage_info(get());
 
 			assert(this_info.page != nullptr
 				&& "corrupt non-null gc_ptr, not pointing into gc arena");
@@ -416,7 +417,7 @@ namespace gcpp {
 				&& "corrupt non-null gc_ptr, pointing to unallocated memory");
 
 			auto temp = get() + offset;
-			auto temp_info = gc().find_gcpage_info(*temp);
+			auto temp_info = gc().find_gcpage_info(temp);
 
 			assert(this_info.page == temp_info.page 
 				&& "bad gc_ptr arithmetic: attempt to leave gcpage");
@@ -489,8 +490,8 @@ namespace gcpp {
 			assert(get() != nullptr && that.get() != nullptr
 				&& "bad gc_ptr arithmetic: can't subtract pointers when one is null");
 
-			auto this_info = gc().find_gcpage_info(*get());
-			auto that_info = gc().find_gcpage_info(*that.get());
+			auto this_info = gc().find_gcpage_info(get());
+			auto that_info = gc().find_gcpage_info(that.get());
 
 			assert(this_info.page != nullptr
 				&& that_info.page != nullptr
@@ -650,7 +651,7 @@ namespace gcpp {
 		//	append it to the back of the appropriate list
 		assert(!is_destroying 
 			&& "cannot allocate new objects on a gc_heap that is being destroyed");
-		auto pg = find_gcpage_of(p);
+		auto pg = find_gcpage_of(&p);
 		if (pg != nullptr) 
 		{
 			pg->gc_ptrs.push_back(&p);
@@ -696,26 +697,19 @@ namespace gcpp {
 	//	If the object is not in our storage, returns null.
 	//
 	template<class T>
-	gc_heap::gcpage* gc_heap::find_gcpage_of(T& x) noexcept {
-		//auto it = find_if(pages.rbegin(), pages.rend(),
-		//	[&](auto& pg) { return pg.page.contains(&x); });
-		//if (it != pages.rend()) {
-		//	return &*it;
-		//}
-
+	gc_heap::gcpage* gc_heap::find_gcpage_of(T* p) noexcept {
 		for (auto& pg : pages) {
-			if (pg.page.contains(&x))
+			if (pg.page.contains(p))
 				return &pg;
 		}
 		return nullptr;
 	}
 
 	template<class T>
-	gc_heap::find_gcpage_info_ret gc_heap::find_gcpage_info(T& x)  noexcept {
+	gc_heap::find_gcpage_info_ret gc_heap::find_gcpage_info(T* p)  noexcept {
 		find_gcpage_info_ret ret;
-		//auto addr = (byte*)&x;
 		for (auto& pg : pages) {
-			auto info = pg.page.contains_info(&x);
+			auto info = pg.page.contains_info(p);
 			if (info.found != gpage::not_in_range) {
 				ret.page = &pg;
 				ret.info = info;
@@ -827,17 +821,17 @@ namespace gcpp {
 
 // TODO -- better replacement for rest of this function
 		////	... find which page it points into ...
-		//auto where = find_gcpage_info(p);
+		//auto where = find_gcpage_info(&p);
 		//assert(where.page != nullptr
 		//	&& "must not mark a location that's not in our heap");
 
 		//// ... mark the chunk as live ...
-		//where.page->live_starts.set(where.start_location, true);
+		//where.page.live_starts.set(where.start_location, true);
 
 		////	... and mark any gc_ptrs in the allocation as reachable
 		//for (auto& gcp : gc_ptrs) {
 		//	// TODO this is inefficient, clean up
-		//	auto gcp_where = where.page->page.contains_info((byte*)gcp.p);
+		//	auto gcp_where = where.page.page.contains_info((byte*)gcp.p);
 		//	if (gcp_where.found != gpage::not_in_range
 		//		&& gcp_where.start_location == where.info.start_location
 		//		&& gcp.level == 0) {

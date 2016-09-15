@@ -1,3 +1,4 @@
+
 /////////////////////////////////////////////////////////////////////////////// 
 // 
 // Copyright (c) 2016 Herb Sutter. All rights reserved. 
@@ -56,13 +57,15 @@ namespace gcpp {
 		bitflags						starts;
 		std::size_t						current_known_request_bound = total_size;
 
-		//	Copy and move and disabled by const unique_ptr member, but let's be explicit
+		//	Copy and move are disabled by const unique_ptr member, but let's be explicit
 		//
 		gpage(gpage&) = delete;
 		void operator=(gpage&) = delete;
 
 	public:
 		std::size_t locations() const noexcept { return total_size / min_alloc; }
+
+		const void* begin() const { return storage.get(); }
 
 		//	Construct a page with a given size and chunk size
 		//

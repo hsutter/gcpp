@@ -21,6 +21,7 @@
 
 #define _ITERATOR_DEBUG_LEVEL 0
 
+// this is the right way to do totally ordered comparisons; TODO propose again in ISO
 #define GCPP_TOTALLY_ORDERED_COMPARISON(Type) \
 bool operator==(const Type& that) const { return compare3(that) == 0; } \
 bool operator!=(const Type& that) const { return compare3(that) != 0; } \
