@@ -16,8 +16,8 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 
-#ifndef GALLOC_GALLOC
-#define GALLOC_GALLOC
+#ifndef GALLOC_DEFERRED_ALLOCATOR
+#define GALLOC_DEFERRED_ALLOCATOR
 
 #include "deferred_heap.h"
 

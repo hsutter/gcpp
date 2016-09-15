@@ -16,8 +16,8 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 
-#ifndef GALLOC_GC
-#define GALLOC_GC
+#ifndef GALLOC_DEFERRED_HEAP
+#define GALLOC_DEFERRED_HEAP
 
 #include "gpage.h"
 
