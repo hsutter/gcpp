@@ -36,10 +36,10 @@ namespace galloc {
 	{
 	public:
 		using value_type         = T;
-		using pointer            = gc_ptr<value_type>;
-		using const_pointer      = gc_ptr<const value_type>;
-		using void_pointer       = gc_ptr<void>;
-		using const_void_pointer = gc_ptr<const void>;
+		using pointer            = deferred_ptr<value_type>;
+		using const_pointer      = deferred_ptr<const value_type>;
+		using void_pointer       = deferred_ptr<void>;
+		using const_void_pointer = deferred_ptr<const void>;
 		using difference_type    = ptrdiff_t;
 		using size_type          = std::size_t;
 
@@ -91,7 +91,7 @@ namespace galloc {
 
 		deferred_allocator select_on_container_copy_construction() const 
 		{
-			return *this;	// TODO gc_heap is currently not copyable
+			return *this;	// TODO deferred_heap is currently not copyable
 		}
 
 		using propagate_on_container_copy_assignment = std::false_type;

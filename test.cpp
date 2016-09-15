@@ -68,8 +68,8 @@ struct node {
 	node() { cout << "+node\n"; }
 	~node() { cout << "-node\n"; }
 
-	gc_ptr<node> xyzzy;
-	gc_ptr<node> plugh;
+	deferred_ptr<node> xyzzy;
+	deferred_ptr<node> plugh;
 };
 
 
@@ -105,31 +105,31 @@ void test_page() {
 
 //----------------------------------------------------------------------------
 //
-//	Basic use of a gc_heap.
+//	Basic use of a deferred_heap.
 //
 //----------------------------------------------------------------------------
 
 void test_global_deferred_heap() {
-	vector<gc_ptr<int>> v;
-	vector<gc_ptr<array<char, 10>>> va;
+	vector<deferred_ptr<int>> v;
+	vector<deferred_ptr<array<char, 10>>> va;
 	global_deferred_heap().debug_print();
 
-	//v.emplace_back(make_gc<int>());
+	//v.emplace_back(make_deferred<int>());
 	//global_deferred_heap().debug_print();
 
-	va.emplace_back(make_gc<array<char, 10>>());
+	va.emplace_back(make_deferred<array<char, 10>>());
 	//global_deferred_heap().debug_print();
 
-	//v.emplace_back(make_gc<int>());
+	//v.emplace_back(make_deferred<int>());
 	//global_deferred_heap().debug_print();
 
-	//v.emplace_back(make_gc<int>());
+	//v.emplace_back(make_deferred<int>());
 	//global_deferred_heap().debug_print();
 
 	//v.erase(v.begin() + 1);//global_deferred_heap().debug_print();
 
-	auto x = make_gc<node>();
-	x->plugh = make_gc<node>();
+	auto x = make_deferred<node>();
+	x->plugh = make_deferred<node>();
 	x->plugh->xyzzy = x; // make a cycle
 	x = nullptr;		// now the cycle is unreachable
 
@@ -143,12 +143,12 @@ void test_global_deferred_heap() {
 
 //----------------------------------------------------------------------------
 //
-//	Some timing of gc_heap.
+//	Some timing of deferred_heap.
 //
 //----------------------------------------------------------------------------
 
 template<class T>
-void time_gc_shared(int N) {
+void time_deferred_shared(int N) {
 	vector<shared_ptr<T>> v;
 	auto start = std::chrono::high_resolution_clock::now();
 	for (int i = 0; i < N; ++i)
@@ -160,22 +160,22 @@ void time_gc_shared(int N) {
 }
 
 template<class T>
-void time_gc_gc(int N) {
-	vector<gc_ptr<T>> v;
+void time_deferred_deferred(int N) {
+	vector<deferred_ptr<T>> v;
 	auto start = std::chrono::high_resolution_clock::now();
 	for (int i = 0; i < N; ++i) {
-		v.push_back(make_gc<T>());
+		v.push_back(make_deferred<T>());
 	}
 	auto end = std::chrono::high_resolution_clock::now();
-	cout << "\tgc_ptr (" << N << ") time: "
+	cout << "\tdeferred_ptr (" << N << ") time: "
 		<< std::chrono::duration<double, std::milli>(end - start).count()
 		<< "ms\n";
 }
 
 void time_global_deferred_heap() {
 	for (int i = 10; i < 11000; i *= 2) {
-		time_gc_shared<int>(i);
-		time_gc_gc<int>(i);
+		time_deferred_shared<int>(i);
+		time_deferred_deferred<int>(i);
 		//global_deferred_heap().debug_print();
 		//global_deferred_heap().collect();
 		//global_deferred_heap().debug_print();
@@ -302,7 +302,7 @@ void time_set(const char* sz, int N) {
 void time_deferred_allocator_set() {
 	for (int i = 10; i < 11000; i *= 2) {
 		time_set<set<int>>("set<int>", i);
-		time_set<set<int, less<int>, deferred_allocator<int>>>("set<int,gc>", i);
+		time_set<set<int, less<int>, deferred_allocator<int>>>("set<int,>", i);
 		//global_deferred_heap().debug_print();
 		//global_deferred_heap().collect();
 		//global_deferred_heap().debug_print();
@@ -324,27 +324,27 @@ void time_vec(const char* sz, int N) {
 void time_deferred_allocator_vector() {
 	for (int i = 10; i < 11000; i *= 2) {
 		//time_vec<vector<int>>("vector<int>", i);
-		time_vec<vector<int, deferred_allocator<int>>>("vector<int,gc>", i);
+		time_vec<vector<int, deferred_allocator<int>>>("vector<int,deferred>", i);
 		//global_deferred_heap().debug_print();
 		//global_deferred_heap().collect();
 		//global_deferred_heap().debug_print();
 	}
 }
 
-void test_gc_array() {
-	vector<gc_ptr<widget>> v;
+void test_deferred_array() {
+	vector<deferred_ptr<widget>> v;
 
-	v.push_back(make_gc_array<widget>(3));
+	v.push_back(make_deferred_array<widget>(3));
 	global_deferred_heap().debug_print();
 
-	v.push_back(make_gc_array<widget>(2));
+	v.push_back(make_deferred_array<widget>(2));
 	global_deferred_heap().debug_print();
 
-	v.push_back(make_gc_array<widget>(4));
+	v.push_back(make_deferred_array<widget>(4));
 
 	global_deferred_heap().debug_print();
 
-	v.push_back(make_gc_array<widget>(3));
+	v.push_back(make_deferred_array<widget>(3));
 
 	global_deferred_heap().debug_print();
 
@@ -370,7 +370,7 @@ int main() {
 	//test_deferred_allocator_vector();
 	//time_deferred_allocator_vector();
 
-	//test_gc_array();
+	//test_deferred_array();
 
 	//global_deferred_heap().collect();
 	//global_deferred_heap().debug_print();

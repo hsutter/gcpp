@@ -19,10 +19,10 @@
 
 namespace galloc {
 
-	//	For now, there's just one global gc_heap (will allow multiple local gc_heaps soon)
+	//	For now, there's just one global deferred_heap (will allow multiple local deferred_heaps soon)
 	//
-	gc_heap& global_deferred_heap() {
-		static gc_heap the_arena;
+	deferred_heap& global_deferred_heap() {
+		static deferred_heap the_arena;
 		return the_arena;
 	}
 

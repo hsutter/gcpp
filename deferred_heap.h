@@ -125,80 +125,80 @@ namespace galloc {
 
 	//----------------------------------------------------------------------------
 	//
-	//	The GC arena produces gc_ptr<T>s via make<T>.
+	//	The deferred heap produces deferred_ptr<T>s via make<T>.
 	//
 	//----------------------------------------------------------------------------
 
-	class gc_heap {
-		friend gc_heap& global_deferred_heap();	// TODO
+	class deferred_heap {
+		friend deferred_heap& global_deferred_heap();	// TODO
 
-		class  gc_ptr_void;
-		friend class gc_ptr_void;
+		class  deferred_ptr_void;
+		friend class deferred_ptr_void;
 
-		template<class T> friend class gc_ptr;
+		template<class T> friend class deferred_ptr;
 		template<class T> friend class deferred_allocator;
 
 		//	TODO Can only be used via the global global_deferred_heap() accessor.
-		gc_heap()  			  = default;
-		~gc_heap();
+		deferred_heap()  			  = default;
+		~deferred_heap();
 
 		//	Disable copy and move
-		gc_heap(gc_heap&)		  = delete;
-		void operator=(gc_heap&) = delete;
+		deferred_heap(deferred_heap&)		  = delete;
+		void operator=(deferred_heap&) = delete;
 
-		//	Add/remove a gc_ptr in the tracking list.
-		//	Invoked when constructing and destroying a gc_ptr.
-		void enregister(const gc_ptr_void& p);
-		void deregister(const gc_ptr_void& p);
+		//	Add/remove a deferred_ptr in the tracking list.
+		//	Invoked when constructing and destroying a deferred_ptr.
+		void enregister(const deferred_ptr_void& p);
+		void deregister(const deferred_ptr_void& p);
 
 		//------------------------------------------------------------------------
 		//
-		//  gc_ptr_void is the generic GC pointer type we use and track
-		//  internally. The user uses gc_ptr<T>, the type-casting wrapper.
+		//  deferred_ptr_void is the generic pointer type we use and track
+		//  internally. The user uses deferred_ptr<T>, the type-casting wrapper.
 		//
-		class gc_ptr_void {
+		class deferred_ptr_void {
 			void* p;
 
 		protected:
 			void  set(void* p_) noexcept { p = p_; }
 
-			gc_ptr_void(void* p_ = nullptr)
+			deferred_ptr_void(void* p_ = nullptr)
 				: p(p_)
 			{
 				global_deferred_heap().enregister(*this);
 			}
 
-			~gc_ptr_void() {
+			~deferred_ptr_void() {
 				global_deferred_heap().deregister(*this);
 			}
 
-			gc_ptr_void(const gc_ptr_void& that)
-				: gc_ptr_void(that.p)
+			deferred_ptr_void(const deferred_ptr_void& that)
+				: deferred_ptr_void(that.p)
 			{ }
 
 			//	Note: =default makes this assignment operator trivial.
-			gc_ptr_void& operator=(const gc_ptr_void& that) noexcept = default;
+			deferred_ptr_void& operator=(const deferred_ptr_void& that) noexcept = default;
 		public:
 			void* get() const noexcept { return p; }
 			void  reset() noexcept { p = nullptr; }
 		};
 
-		//	For non-roots (gc_ptrs that are in the GC arena), we'll additionally
-		//	store an int that we'll use for terminating marking within the GC heap.
+		//	For non-roots (deferred_ptrs that are in the deferred heap), we'll additionally
+		//	store an int that we'll use for terminating marking within the deferred heap.
 		//  The level is the distance from some root -- not necessarily the smallest
 		//	distance from a root, just along whatever path we took during marking.
 		//
 		struct nonroot {
-			const gc_ptr_void* p;
+			const deferred_ptr_void* p;
 			std::size_t level = 0;
 
-			nonroot(const gc_ptr_void* p_) noexcept : p{ p_ } { }
+			nonroot(const deferred_ptr_void* p_) noexcept : p{ p_ } { }
 		};
 
-		struct gcpage {
+		struct dhpage {
 			gpage				 page;
 			bitflags		 	 live_starts;	// for tracing
-			std::vector<nonroot> gc_ptrs;		// known gc_ptrs in this page
+			std::vector<nonroot> deferred_ptrs;		// known deferred_ptrs in this page
 
 			//	Construct a page tuned to hold Hint objects, big enough for
 			//	at least 1 + phi ~= 2.62 of these requests (but at least 64K),
@@ -207,7 +207,7 @@ namespace galloc {
 			//	TODO: don't allocate objects on pages with chunk sizes > 2 * object size
 			//
 			template<class Hint>
-			gcpage(const Hint* /*--*/, size_t n)
+			dhpage(const Hint* /*--*/, size_t n)
 				: page{ std::max<size_t>(sizeof(Hint) * n * 2.62, 4096 /*good general default*/), 
 						std::max<size_t>(sizeof(Hint), 4) }
 				, live_starts(page.locations(), false)
@@ -218,8 +218,8 @@ namespace galloc {
 		//------------------------------------------------------------------------
 		//	Data: Storage and tracking information
 		//
-		std::list<gcpage>						pages;
-		std::unordered_set<const gc_ptr_void*>	gc_roots;	// outside GC arena
+		std::list<dhpage>						pages;
+		std::unordered_set<const deferred_ptr_void*>	roots;	// outside deferred heap
 		destructors								dtors;
 		bool is_destroying = false;
 		bool collect_before_expand = false;
@@ -232,7 +232,7 @@ namespace galloc {
 		//	If allocation fails, the returned pointer will be null
 		//
 		template<class T, class ...Args>
-		gc_ptr<T> make(Args&&... args) {
+		deferred_ptr<T> make(Args&&... args) {
 			auto p = allocate<T>();
 			if (p != nullptr) {
 				construct(p.get(), std::forward<Args>(args)...);
@@ -247,7 +247,7 @@ namespace galloc {
 		//	If allocation fails, the returned pointer will be null
 		//
 		template<class T>
-		gc_ptr<T> make_array(std::size_t n) {
+		deferred_ptr<T> make_array(std::size_t n) {
 			auto p = allocate<T>(n);
 			if (p != nullptr) {
 				construct_array(p.get(), n);
@@ -263,24 +263,24 @@ namespace galloc {
 		//
 		//	There are private, for use via deferred_allocator only
 
-		//  Helper: Return the gcpage on which this object exists.
+		//  Helper: Return the dhpage on which this object exists.
 		//	If the object is not in our storage, returns null.
 		//
 		template<class T>
-		gcpage* find_gcpage_of(T* p) noexcept;
+		dhpage* find_dhpage_of(T* p) noexcept;
 
-		struct find_gcpage_info_ret {
-			gcpage* page = nullptr;
+		struct find_dhpage_info_ret {
+			dhpage* page = nullptr;
 			gpage::contains_info_ret info;
 		};
 		template<class T> 
-		find_gcpage_info_ret find_gcpage_info(T* p) noexcept;
+		find_dhpage_info_ret find_dhpage_info(T* p) noexcept;
 
 		template<class T>
 		T* allocate_from_existing_pages(std::size_t n);
 			
 		template<class T>
-		gc_ptr<T> allocate(std::size_t n = 1);
+		deferred_ptr<T> allocate(std::size_t n = 1);
 
 		template<class T, class ...Args> 
 		void construct(T* p, Args&& ...args);
@@ -295,7 +295,7 @@ namespace galloc {
 
 		//------------------------------------------------------------------------
 		//
-		//	collect, et al.: Sweep the GC arena
+		//	collect, et al.: Sweep the deferred heap
 		//
 		void mark(const void* p, std::size_t level) noexcept;
 
@@ -317,62 +317,62 @@ namespace galloc {
 
 	//------------------------------------------------------------------------
 	//
-	//  gc_ptr<T> is the typed GC pointer type for callers to use.
+	//  deferred_ptr<T> is the typed pointer type for callers to use.
 	//
 	//------------------------------------------------------------------------
 	//
 	template<class T>
-	class gc_ptr : public gc_heap::gc_ptr_void {
-		gc_ptr(T* p)
-			: gc_ptr_void(p)
+	class deferred_ptr : public deferred_heap::deferred_ptr_void {
+		deferred_ptr(T* p)
+			: deferred_ptr_void(p)
 		{ }
 
-		friend gc_heap;
+		friend deferred_heap;
 
 	public:
 		//	Default and null construction. (Note we do not use a defaulted
 		//	T* parameter, so that the T* overload can be private and the
 		//	nullptr overload can be public.)
 		//
-		gc_ptr() : gc_ptr_void(nullptr) { }
+		deferred_ptr() : deferred_ptr_void(nullptr) { }
 
 		//	Construction and assignment from null. Note: The null constructor
 		//	is not defined as a combination default constructor in the usual
 		//	way (that is, as constructor from T* with a default null argument)
 		//	because general construction from T* is private.
 		//
-		gc_ptr(std::nullptr_t) : gc_ptr{} { }
+		deferred_ptr(std::nullptr_t) : deferred_ptr{} { }
 
-		gc_ptr& operator=(std::nullptr_t) noexcept {
+		deferred_ptr& operator=(std::nullptr_t) noexcept {
 			reset();
 			return *this;
 		}
 
 		//	Copying.
 		//
-		gc_ptr(const gc_ptr& that)
-			: gc_ptr_void(that)
+		deferred_ptr(const deferred_ptr& that)
+			: deferred_ptr_void(that)
 		{ }
 
-		gc_ptr& operator=(const gc_ptr& that) noexcept = default;	// trivial copy assignment
+		deferred_ptr& operator=(const deferred_ptr& that) noexcept = default;	// trivial copy assignment
 
 		//	Copying with conversions (base -> derived, non-const -> const).
 		//
 		template<class U>
-		gc_ptr(const gc_ptr<U>& that)
-			: gc_ptr_void(static_cast<T*>((U*)(that.p)))			// ensure U* converts to T*
+		deferred_ptr(const deferred_ptr<U>& that)
+			: deferred_ptr_void(static_cast<T*>((U*)(that.p)))			// ensure U* converts to T*
 		{ }
 
 		template<class U>
-		gc_ptr& operator=(const gc_ptr<U>& that) noexcept {
-			gc_ptr_void::operator=(static_cast<T*>((U*)that.p));	// ensure U* converts to T*
+		deferred_ptr& operator=(const deferred_ptr<U>& that) noexcept {
+			deferred_ptr_void::operator=(static_cast<T*>((U*)that.p));	// ensure U* converts to T*
 			return *this;
 		}
 
 		//	Accessors.
 		//
 		T* get() const noexcept {
-			return (T*)gc_ptr_void::get();
+			return (T*)deferred_ptr_void::get();
 		}
 
 		T& operator*() const noexcept {
@@ -391,36 +391,36 @@ namespace galloc {
 		}
 
 		template<class T>
-		static gc_ptr<T> pointer_to(T& t) {
-			return gc_ptr<T>(&t);
+		static deferred_ptr<T> pointer_to(T& t) {
+			return deferred_ptr<T>(&t);
 		}
 
 
 		// this is the right way to do totally ordered comparisons, maybe someday it'll be standard
-		int compare3(const gc_ptr& that) const { return get() < that.get() ? -1 : get() == that.get() ? 0 : 1; };
-		GALLOC_TOTALLY_ORDERED_COMPARISON(gc_ptr);	// maybe someday this will be default
+		int compare3(const deferred_ptr& that) const { return get() < that.get() ? -1 : get() == that.get() ? 0 : 1; };
+		GALLOC_TOTALLY_ORDERED_COMPARISON(deferred_ptr);	// maybe someday this will be default
 													
 													
-		//	Checked pointer arithmetic -- TODO this should probably go into a separate array_gc_ptr type
+		//	Checked pointer arithmetic -- TODO this should probably go into a separate array_deferred_ptr type
 		//
-		gc_ptr& operator+=(int offset) noexcept {
+		deferred_ptr& operator+=(int offset) noexcept {
 #ifndef NDEBUG
 			assert(get() != nullptr 
-				&& "bad gc_ptr arithmetic: can't perform arithmetic on a null pointer");
+				&& "bad deferred_ptr arithmetic: can't perform arithmetic on a null pointer");
 
-			auto this_info = global_deferred_heap().find_gcpage_info(get());
+			auto this_info = global_deferred_heap().find_dhpage_info(get());
 
 			assert(this_info.page != nullptr
-				&& "corrupt non-null gc_ptr, not pointing into gc arena");
+				&& "corrupt non-null deferred_ptr, not pointing into deferred heap");
 
 			assert(this_info.info.found > gpage::in_range_unallocated
-				&& "corrupt non-null gc_ptr, pointing to unallocated memory");
+				&& "corrupt non-null deferred_ptr, pointing to unallocated memory");
 
 			auto temp = get() + offset;
-			auto temp_info = global_deferred_heap().find_gcpage_info(temp);
+			auto temp_info = global_deferred_heap().find_dhpage_info(temp);
 
 			assert(this_info.page == temp_info.page 
-				&& "bad gc_ptr arithmetic: attempt to leave gcpage");
+				&& "bad deferred_ptr arithmetic: attempt to leave dhpage");
 
 			assert(
 				//	if this points to the start of an allocation, it's always legal
@@ -436,51 +436,51 @@ namespace galloc {
 					this_info.info.start_location == temp_info.info.start_location 
 					&& temp_info.info.found > gpage::in_range_unallocated)
 					)
-				&& "bad gc_ptr arithmetic: attempt to go outside the allocation");
+				&& "bad deferred_ptr arithmetic: attempt to go outside the allocation");
 #endif
 			set(get() + offset);
 			return *this;
 		}
 
-		gc_ptr& operator-=(int offset) noexcept {
+		deferred_ptr& operator-=(int offset) noexcept {
 			return operator+=(-offset);
 		}
 
-		gc_ptr& operator++() noexcept {
+		deferred_ptr& operator++() noexcept {
 			return operator+=(1);
 		}
 
-		gc_ptr& operator++(int) noexcept {
+		deferred_ptr& operator++(int) noexcept {
 			return operator+=(1);
 		}
 
-		gc_ptr& operator--() noexcept {
+		deferred_ptr& operator--() noexcept {
 			return operator+=(-1);
 		}
 
-		gc_ptr operator+(int offset) const noexcept {
+		deferred_ptr operator+(int offset) const noexcept {
 			auto ret = *this;
 			ret += offset;
 			return ret;
 		}
 
-		gc_ptr operator-(int offset) const noexcept {
+		deferred_ptr operator-(int offset) const noexcept {
 			return *this + -offset;
 		}
 
 		T& operator[](size_t offset) noexcept {
 #ifndef NDEBUG
-			//	In debug mode, perform the arithmetic checks by creating a temporary gc_ptr
+			//	In debug mode, perform the arithmetic checks by creating a temporary deferred_ptr
 			auto tmp = *this;
 			tmp += offset;	
 			return *tmp;
 #else
-			//	In release mode, don't enregister/deregister a temnporary gc_ptr
+			//	In release mode, don't enregister/deregister a temnporary deferred_ptr
 			return *(get() + offset);
 #endif
 		}
 
-		ptrdiff_t operator-(const gc_ptr& that) const noexcept {
+		ptrdiff_t operator-(const deferred_ptr& that) const noexcept {
 #ifndef NDEBUG
 			//	Note that this intentionally permits subtracting two null pointers
 			if (get() == that.get()) {
@@ -488,20 +488,20 @@ namespace galloc {
 			}
 
 			assert(get() != nullptr && that.get() != nullptr
-				&& "bad gc_ptr arithmetic: can't subtract pointers when one is null");
+				&& "bad deferred_ptr arithmetic: can't subtract pointers when one is null");
 
-			auto this_info = global_deferred_heap().find_gcpage_info(get());
-			auto that_info = global_deferred_heap().find_gcpage_info(that.get());
+			auto this_info = global_deferred_heap().find_dhpage_info(get());
+			auto that_info = global_deferred_heap().find_dhpage_info(that.get());
 
 			assert(this_info.page != nullptr
 				&& that_info.page != nullptr
-				&& "corrupt non-null gc_ptr, not pointing into gc arena");
+				&& "corrupt non-null deferred_ptr, not pointing into deferred heap");
 
 			assert(that_info.info.found > gpage::in_range_unallocated
-				&& "corrupt non-null gc_ptr, pointing to unallocated space");
+				&& "corrupt non-null deferred_ptr, pointing to unallocated space");
 
 			assert(that_info.page == this_info.page
-				&& "bad gc_ptr arithmetic: attempt to leave gcpage");
+				&& "bad deferred_ptr arithmetic: attempt to leave dhpage");
 
 			assert(
 				//	if that points to the start of an allocation, it's always legal
@@ -510,7 +510,7 @@ namespace galloc {
 				//
 				//	TODO: we could eliminate this first test by adding an extra byte
 				//	to every allocation, then we'd be type-safe too (this being the
-				//	only way to form a gc_ptr<T> to something not allocated as a T)
+				//	only way to form a deferred_ptr<T> to something not allocated as a T)
 				((
 					that_info.info.found == gpage::in_range_allocated_start
 					&& (get() == that.get()+1)
@@ -521,7 +521,7 @@ namespace galloc {
 						that_info.info.start_location == this_info.info.start_location
 						&& this_info.info.found > gpage::in_range_unallocated)
 					)
-				&& "bad gc_ptr arithmetic: attempt to go outside the allocation");
+				&& "bad deferred_ptr arithmetic: attempt to go outside the allocation");
 #endif
 
 			return get() - that.get();
@@ -534,61 +534,61 @@ namespace galloc {
 	//	(if we do that, also disable arithmetic on void... perhaps that just falls out)
 
 	template<>
-	class gc_ptr<void> : public gc_heap::gc_ptr_void {
-		gc_ptr(void* p)
-			: gc_ptr_void(p)
+	class deferred_ptr<void> : public deferred_heap::deferred_ptr_void {
+		deferred_ptr(void* p)
+			: deferred_ptr_void(p)
 		{ }
 
-		friend gc_heap;
+		friend deferred_heap;
 
 	public:
 		//	Default and null construction. (Note we do not use a defaulted
 		//	T* parameter, so that the T* overload can be private and the
 		//	nullptr overload can be public.)
 		//
-		gc_ptr() : gc_ptr_void(nullptr) { }
+		deferred_ptr() : deferred_ptr_void(nullptr) { }
 
 		//	Construction and assignment from null. Note: The null constructor
 		//	is not defined as a combination default constructor in the usual
 		//	way (that is, as constructor from T* with a default null argument)
 		//	because general construction from T* is private.
 		//
-		gc_ptr(std::nullptr_t) : gc_ptr{} { }
+		deferred_ptr(std::nullptr_t) : deferred_ptr{} { }
 
-		gc_ptr& operator=(std::nullptr_t) noexcept {
+		deferred_ptr& operator=(std::nullptr_t) noexcept {
 			reset();
 			return *this;
 		}
 
 		//	Copying.
 		//
-		gc_ptr(const gc_ptr& that)
-			: gc_ptr_void(that)
+		deferred_ptr(const deferred_ptr& that)
+			: deferred_ptr_void(that)
 		{ }
 
-		gc_ptr& operator=(const gc_ptr& that) noexcept
+		deferred_ptr& operator=(const deferred_ptr& that) noexcept
 		{
-			gc_ptr_void::operator=(that);
+			deferred_ptr_void::operator=(that);
 			return *this;
 		}
 
 		//	Copying with conversions (base -> derived, non-const -> const).
 		//
 		template<class U>
-		gc_ptr(const gc_ptr<U>& that)
-			: gc_ptr_void(that)
+		deferred_ptr(const deferred_ptr<U>& that)
+			: deferred_ptr_void(that)
 		{ }
 
 		template<class U>
-		gc_ptr& operator=(const gc_ptr<U>& that) noexcept {
-			gc_ptr_void::operator=(that);
+		deferred_ptr& operator=(const deferred_ptr<U>& that) noexcept {
+			deferred_ptr_void::operator=(that);
 			return *this;
 		}
 
 		//	Accessors.
 		//
 		void* get() const noexcept {
-			return gc_ptr_void::get(); 
+			return deferred_ptr_void::get(); 
 		}
 
 		void* operator->() const noexcept {
@@ -601,26 +601,26 @@ namespace galloc {
 	//	Allocate one object of type T initialized with args
 	//
 	template<class T, class ...Args>
-	gc_ptr<T> make_gc(Args&&... args) {
+	deferred_ptr<T> make_deferred(Args&&... args) {
 		return global_deferred_heap().make<T>( std::forward<Args>(args)... );
 	}
 
 	//	Allocate an array of n objects of type T
 	//
 	template<class T>
-	gc_ptr<T> make_gc_array(std::size_t n) {
+	deferred_ptr<T> make_deferred_array(std::size_t n) {
 		return global_deferred_heap().make_array<T>(n);
 	}
 
 
 	//----------------------------------------------------------------------------
 	//
-	//	gc_heap function implementations
+	//	deferred_heap function implementations
 	//
 	//----------------------------------------------------------------------------
 	//
 	inline
-	gc_heap::~gc_heap() 
+	deferred_heap::~deferred_heap() 
 	{
 		//	Note: setting this flag lets us skip worrying about reentrancy;
 		//	a destructor may not allocate a new object (which would try to
@@ -629,13 +629,13 @@ namespace galloc {
 
 		//	when destroying the arena, reset all pointers and run all destructors 
 		//
-		for (auto& p : gc_roots) {
-			const_cast<gc_ptr_void*>(p)->reset();
+		for (auto& p : roots) {
+			const_cast<deferred_ptr_void*>(p)->reset();
 		}
 
 		for (auto& pg : pages) {
-			for (auto& p : pg.gc_ptrs) {
-				const_cast<gc_ptr_void*>(p.p)->reset();
+			for (auto& p : pg.deferred_ptrs) {
+				const_cast<deferred_ptr_void*>(p.p)->reset();
 			}
 		}
 
@@ -644,60 +644,60 @@ namespace galloc {
 		dtors.run_all();
 	}
 
-	//	Add this gc_ptr to the tracking list. Invoked when constructing a gc_ptr.
+	//	Add this deferred_ptr to the tracking list. Invoked when constructing a deferred_ptr.
 	//
 	inline
-	void gc_heap::enregister(const gc_ptr_void& p) {
+	void deferred_heap::enregister(const deferred_ptr_void& p) {
 		//	append it to the back of the appropriate list
 		assert(!is_destroying 
-			&& "cannot allocate new objects on a gc_heap that is being destroyed");
-		auto pg = find_gcpage_of(&p);
+			&& "cannot allocate new objects on a deferred_heap that is being destroyed");
+		auto pg = find_dhpage_of(&p);
 		if (pg != nullptr) 
 		{
-			pg->gc_ptrs.push_back(&p);
+			pg->deferred_ptrs.push_back(&p);
 		}
 		else 
 		{
-			gc_roots.insert(&p);
+			roots.insert(&p);
 		}
 	}
 
-	//	Remove this gc_ptr from tracking. Invoked when destroying a gc_ptr.
+	//	Remove this deferred_ptr from tracking. Invoked when destroying a deferred_ptr.
 	//
 	inline
-	void gc_heap::deregister(const gc_ptr_void& p) {
-		//	no need to actually deregister if we're tearing down this gc_heap
+	void deferred_heap::deregister(const deferred_ptr_void& p) {
+		//	no need to actually deregister if we're tearing down this deferred_heap
 		if (is_destroying) 
 			return;
 
 		//	find its entry, starting from the back because it's more 
 		//	likely to be there (newer objects tend to have shorter
-		//	lifetimes... all local gc_ptrs fall into this category,
-		//	and especially temporary gc_ptrs)
+		//	lifetimes... all local deferred_ptrs fall into this category,
+		//	and especially temporary deferred_ptrs)
 		//
-		auto erased_count = gc_roots.erase(&p);
+		auto erased_count = roots.erase(&p);
 		assert(erased_count < 2 && "duplicate registration");
 		if (erased_count > 0)
 			return;
 
 		for (auto& pg : pages) {
-			auto j = find_if(pg.gc_ptrs.rbegin(), pg.gc_ptrs.rend(),
+			auto j = find_if(pg.deferred_ptrs.rbegin(), pg.deferred_ptrs.rend(),
 				[&p](auto x) { return x.p == &p; });
-			if (j != pg.gc_ptrs.rend()) {
-				*j = pg.gc_ptrs.back();
-				pg.gc_ptrs.pop_back();
+			if (j != pg.deferred_ptrs.rend()) {
+				*j = pg.deferred_ptrs.back();
+				pg.deferred_ptrs.pop_back();
 				return;
 			}
 		}
 
-		assert(!"attempt to deregister an unregistered gc_ptr");
+		assert(!"attempt to deregister an unregistered deferred_ptr");
 	}
 
-	//  Return the gcpage on which this object exists.
+	//  Return the dhpage on which this object exists.
 	//	If the object is not in our storage, returns null.
 	//
 	template<class T>
-	gc_heap::gcpage* gc_heap::find_gcpage_of(T* p) noexcept {
+	deferred_heap::dhpage* deferred_heap::find_dhpage_of(T* p) noexcept {
 		for (auto& pg : pages) {
 			if (pg.page.contains(p))
 				return &pg;
@@ -706,8 +706,8 @@ namespace galloc {
 	}
 
 	template<class T>
-	gc_heap::find_gcpage_info_ret gc_heap::find_gcpage_info(T* p)  noexcept {
-		find_gcpage_info_ret ret;
+	deferred_heap::find_dhpage_info_ret deferred_heap::find_dhpage_info(T* p)  noexcept {
+		find_dhpage_info_ret ret;
 		for (auto& pg : pages) {
 			auto info = pg.page.contains_info(p);
 			if (info.found != gpage::not_in_range) {
@@ -719,7 +719,7 @@ namespace galloc {
 	}
 
 	template<class T>
-	T* gc_heap::allocate_from_existing_pages(std::size_t n) {
+	T* deferred_heap::allocate_from_existing_pages(std::size_t n) {
 		T* p = nullptr;
 		for (auto& pg : pages) {
 			p = pg.page.allocate<T>(n);
@@ -730,7 +730,7 @@ namespace galloc {
 	}
 
 	template<class T>
-	gc_ptr<T> gc_heap::allocate(std::size_t n) 
+	deferred_ptr<T> deferred_heap::allocate(std::size_t n) 
 	{
 		//	get raw memory from the backing storage...
 		T* p = allocate_from_existing_pages<T>(n);
@@ -753,7 +753,7 @@ namespace galloc {
 	}
 
 	template<class T, class ...Args>
-	void gc_heap::construct(T* p, Args&& ...args) 
+	void deferred_heap::construct(T* p, Args&& ...args) 
 	{
 		assert(p != nullptr && "construction at null location");
 
@@ -774,7 +774,7 @@ namespace galloc {
 	}
 
 	template<class T>
-	void gc_heap::construct_array(T* p, std::size_t n) 
+	void deferred_heap::construct_array(T* p, std::size_t n) 
 	{
 		assert(p != nullptr && "construction at null location");
 
@@ -797,23 +797,23 @@ namespace galloc {
 	}
 
 	template<class T>
-	void gc_heap::destroy(T* p) noexcept 
+	void deferred_heap::destroy(T* p) noexcept 
 	{
 		assert((p == nullptr || dtors.is_stored(p))
 			&& "attempt to destroy an object whose destructor is not registered");
 	}
 
 	inline
-	bool gc_heap::destroy_objects(byte* start, byte* end) {
+	bool deferred_heap::destroy_objects(byte* start, byte* end) {
 		return dtors.run(start, end);
 	}
 
 	//------------------------------------------------------------------------
 	//
-	//	collect, et al.: Sweep the GC arena
+	//	collect, et al.: Sweep the deferred heap
 	//
 	inline
-	void gc_heap::mark(const void* p, std::size_t level) noexcept
+	void deferred_heap::mark(const void* p, std::size_t level) noexcept
 	{
 		// if it isn't null ...
 		if (p == nullptr)
@@ -821,21 +821,21 @@ namespace galloc {
 
 // TODO -- better replacement for rest of this function
 		////	... find which page it points into ...
-		//auto where = find_gcpage_info(&p);
+		//auto where = find_dhpage_info(&p);
 		//assert(where.page != nullptr
 		//	&& "must not mark a location that's not in our heap");
 
 		//// ... mark the chunk as live ...
 		//where.page.live_starts.set(where.start_location, true);
 
-		////	... and mark any gc_ptrs in the allocation as reachable
-		//for (auto& gcp : gc_ptrs) {
+		////	... and mark any deferred_ptrs in the allocation as reachable
+		//for (auto& dp : deferred_ptrs) {
 		//	// TODO this is inefficient, clean up
-		//	auto gcp_where = where.page.page.contains_info((byte*)gcp.p);
-		//	if (gcp_where.found != gpage::not_in_range
-		//		&& gcp_where.start_location == where.info.start_location
-		//		&& gcp.level == 0) {
-		//		gcp.level = level;	// 'level' steps from a root
+		//	auto dp_where = where.page.page.contains_info((byte*)dp.p);
+		//	if (dp_where.found != gpage::not_in_range
+		//		&& dp_where.start_location == where.info.start_location
+		//		&& dp.level == 0) {
+		//		dp.level = level;	// 'level' steps from a root
 		//	}
 		//}
 
@@ -849,15 +849,15 @@ namespace galloc {
 				// ... and mark the chunk as live ...
 				pg.live_starts.set(where.start_location, true);
 
-				// ... and mark any gc_ptrs in the allocation as reachable
-				for (auto& gcp : pg.gc_ptrs) {
-					auto gcp_where = pg.page.contains_info((byte*)gcp.p);
-					assert((gcp_where.found == gpage::in_range_allocated_middle
-						|| gcp_where.found == gpage::in_range_allocated_start)
+				// ... and mark any deferred_ptrs in the allocation as reachable
+				for (auto& dp : pg.deferred_ptrs) {
+					auto dp_where = pg.page.contains_info((byte*)dp.p);
+					assert((dp_where.found == gpage::in_range_allocated_middle
+						|| dp_where.found == gpage::in_range_allocated_start)
 						&& "points to unallocated memory");
-					if (gcp_where.start_location == where.start_location
-						&& gcp.level == 0) {
-						gcp.level = level;	// 'level' steps from a root
+					if (dp_where.start_location == where.start_location
+						&& dp.level == 0) {
+						dp.level = level;	// 'level' steps from a root
 					}
 				}
 				break;
@@ -866,22 +866,22 @@ namespace galloc {
 	}
 
 	inline
-	void gc_heap::collect()
+	void deferred_heap::collect()
 	{
-		//	1. reset all the mark bits and in-arena gc_ptr levels
+		//	1. reset all the mark bits and in-arena deferred_ptr levels
 		//
 		for (auto& pg : pages) {
 			pg.live_starts.set_all(false);
-			for (auto& gcp : pg.gc_ptrs) {
-				gcp.level = 0;
+			for (auto& dp : pg.deferred_ptrs) {
+				dp.level = 0;
 			}
 		}
 
-		//	2. mark all roots + the in-arena gc_ptrs reachable from them
+		//	2. mark all roots + the in-arena deferred_ptrs reachable from them
 		//
 		std::size_t level = 1;
-		for (auto& p : gc_roots) {
-			mark(p->get(), level);	// mark this gc_ptr root
+		for (auto& p : roots) {
+			mark(p->get(), level);	// mark this deferred_ptr root
 		}
 
 		bool done = false;
@@ -889,10 +889,10 @@ namespace galloc {
 			done = true;	// we're done unless we find another to mark
 			++level;
 			for (auto& pg : pages) {
-				for (auto& gcp : pg.gc_ptrs) {
-					if (gcp.level == level - 1) {
+				for (auto& dp : pg.deferred_ptrs) {
+					if (dp.level == level - 1) {
 						done = false;
-						mark(gcp.p->get(), level);	// mark this reachable in-arena gc_ptr
+						mark(dp.p->get(), level);	// mark this reachable in-arena deferred_ptr
 					}
 				}
 			}
@@ -914,41 +914,41 @@ namespace galloc {
 		//	We have now marked every allocation to save, so now
 		//	go through and clean up all the unreachable objects
 
-		//	3. reset all unreached gc_ptrs to null
+		//	3. reset all unreached deferred_ptrs to null
 		//	
-		//	Note: 'const gc_ptr' is supported and behaves as const w.r.t. the
-		//	the program code; however, a gc_ptr data member can become
+		//	Note: 'const deferred_ptr' is supported and behaves as const w.r.t. the
+		//	the program code; however, a deferred_ptr data member can become
 		//	spontaneously null *during object destruction* even if declared
 		//	const to the rest of the program. So the collector is an exception
-		//	to constness, and the const_cast below is because any gc_ptr must
+		//	to constness, and the const_cast below is because any deferred_ptr must
 		//	be able to be set to null during collection, as part of safely
 		//	breaking cycles. (We could declare the data member mutable, but
 		//	then we might accidentally modify it in another const function.
-		//	Since a const gc_ptr should only be reset in this one case, it's
+		//	Since a const deferred_ptr should only be reset in this one case, it's
 		//	more appropriate to avoid mutable and put the const_cast here.)
 		//
 		//	This is the same "don't touch other objects during finalization
 		//	because they may already have been finalized" rule as has evolved
-		//	in all cycle-breaking GCs. But, unlike the managed languages, here
+		//	in all cycle-breaking approaches. But, unlike the managed languages, here
 		//	the rule is actually directly supported and enforced (one object
-		//	being collected cannot touch another collectable object by
-		//	accident because the gc_ptr to that other object is null), it
+		//	being destroyed cannot touch another deferred-cleanup object by
+		//	accident because the deferred_ptr to that other object is null), it
 		//	removes the need for separate "finalizer" functions (we always run
-		//	real destructors, and only have to teach that gc_ptrs might be null
+		//	real destructors, and only have to teach that deferred_ptrs might be null
 		//	in a destructor), and it eliminates the possibility of resurrection
 		//	(it is not possible for a destructor to make a collectable object
 		//	reachable again because we eliminate all pointers to it before any
 		//	user-defined destructor gets a chance to run). This is fully
-		//	compatible with learnings from existing GC approaches, but strictly
+		//	compatible with learnings from existing approaches, but strictly
 		//	better in all these respects by directly enforcing those learnings
 		//	in the design, thus eliminating large classes of errors while also
 		//	minimizing complexity by inventing no new concepts other than
-		//	the rule "gc_ptrs can be null in dtors."
+		//	the rule "deferred_ptrs can be null in dtors."
 		//
 		for (auto& pg : pages) {
-			for (auto& gcp : pg.gc_ptrs) {
-				if (gcp.level == 0) {
-					const_cast<gc_ptr_void*>(gcp.p)->reset();
+			for (auto& dp : pg.deferred_ptrs) {
+				if (dp.level == 0) {
+					const_cast<deferred_ptr_void*>(dp.p)->reset();
 				}
 			}
 		}
@@ -995,20 +995,20 @@ namespace galloc {
 	}
 
 	inline
-	void gc_heap::debug_print() const 
+	void deferred_heap::debug_print() const 
 	{
 		for (auto& pg : pages) {
 			pg.page.debug_print();
-			std::cout << "  this page's gc_ptrs.size() is " << pg.gc_ptrs.size() << "\n";
-			for (auto& gcp : pg.gc_ptrs) {
-				std::cout << "    " << (void*)gcp.p << " -> " << gcp.p->get()
-					<< ", level " << gcp.level << "\n";
+			std::cout << "  this page's deferred_ptrs.size() is " << pg.deferred_ptrs.size() << "\n";
+			for (auto& dp : pg.deferred_ptrs) {
+				std::cout << "    " << (void*)dp.p << " -> " << dp.p->get()
+					<< ", level " << dp.level << "\n";
 			}
 			std::cout << "\n";
 		}
-		std::cout << "  gc_roots.size() is " << gc_roots.size() 
-				  << ", load_factor is " << gc_roots.load_factor() << "\n";
-		for (auto& p : gc_roots) {
+		std::cout << "  roots.size() is " << roots.size() 
+				  << ", load_factor is " << roots.load_factor() << "\n";
+		for (auto& p : roots) {
 			std::cout << "    " << (void*)p << " -> " << p->get() << "\n";
 		}
 		dtors.debug_print();
