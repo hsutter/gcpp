@@ -23,6 +23,7 @@
 
 #include <vector>
 #include <list>
+#include <utility>
 #include <unordered_set>
 #include <algorithm>
 #include <type_traits>
@@ -156,31 +157,87 @@ namespace galloc {
 		//  deferred_ptr_void is the generic pointer type we use and track
 		//  internally. The user uses deferred_ptr<T>, the type-casting wrapper.
 		//
+		//	There are two main states:
+		//
+		//	- unattached, mypage == nullptr
+		//		this pointer is not yet attached to a heap, and p must be null
+		//
+		//	- attached, mypage != nullptr
+		//		this pointer is attached to mypage->myheap and must not be
+		//		repointed to a different heap (assignment from a pointer into
+		//		a different heap is not allowed)
+		//
+		//	The pointer becomes attached when it is first constructed or assigned with
+		//	a non-null page pointer (incl. when copied from an attached pointer). The
+		//	pointer becomes unattached when the heap it was attached to is destroyed.
+		//
+		struct dhpage;
+
 		class deferred_ptr_void {
 			void* p;
+			dhpage* mypage;
+
+			friend deferred_heap;
 
 		protected:
 			void  set(void* p_) noexcept { p = p_; }
 
-			deferred_ptr_void(void* p_ = nullptr)
-				: p(p_)
+			deferred_ptr_void(dhpage* page = nullptr, void* p_ = nullptr)
+				: mypage{ page }
+				, p{ p_ }
 			{
-				global_deferred_heap().enregister(*this);
+				//	Allow null pointers, we'll set the page on the first assignment
+				assert((p == nullptr || mypage != nullptr) && "page cannot be null for a non-null pointer");
+				if (mypage != nullptr) {
+					mypage->myheap->enregister(*this);
+				}
 			}
 
 			~deferred_ptr_void() {
-				global_deferred_heap().deregister(*this);
+				if (mypage != nullptr) {
+					mypage->myheap->deregister(*this);
+				}
 			}
 
 			deferred_ptr_void(const deferred_ptr_void& that)
-				: deferred_ptr_void(that.p)
+				: deferred_ptr_void(that.mypage, that.p)
 			{ }
 
-			//	Note: =default makes this assignment operator trivial.
-			deferred_ptr_void& operator=(const deferred_ptr_void& that) noexcept = default;
+			deferred_ptr_void& operator=(const deferred_ptr_void& that) noexcept {
+				//	Allow assignment from an unattached null pointer
+				if (that.mypage == nullptr) {
+					assert(that.p == nullptr && "unattached deferred_ptr must be null");
+					reset();	// just to keep the nulling logic in one place
+				}
+
+				//	Otherwise, we must be unattached or pointing into the same heap
+				else {
+					assert((mypage == nullptr || mypage->myheap == that.mypage->myheap)
+						&& "cannot assign deferred_ptrs into different deferred_heaps");
+					p = that.p;
+					if (mypage == nullptr) {
+						that.mypage->myheap->enregister(*this);	// perform lazy attach
+						mypage = that.mypage;
+					}
+				}
+
+				return *this;
+			}
+
+			//	detach is called from ~deferred_heap() when the heap is destroyed
+			//	before this pointer is destroyed
+			//
+			void detach() noexcept {
+				p = nullptr;
+				mypage = nullptr;
+			}
+
 		public:
-			void* get() const noexcept { return p; }
-			void  reset() noexcept { p = nullptr; }
+			void* get() const noexcept { 
+				return p;
+			}
+
+			void  reset() noexcept { p = nullptr; /* leave mypage alone so we can assign again */ }
 		};
 
 		//	For non-roots (deferred_ptrs that are in the deferred heap), we'll additionally
@@ -198,7 +255,8 @@ namespace galloc {
 		struct dhpage {
 			gpage				 page;
 			bitflags		 	 live_starts;	// for tracing
-			std::vector<nonroot> deferred_ptrs;		// known deferred_ptrs in this page
+			std::vector<nonroot> deferred_ptrs;	// known deferred_ptrs in this page
+			deferred_heap*		 myheap;
 
 			//	Construct a page tuned to hold Hint objects, big enough for
 			//	at least 1 + phi ~= 2.62 of these requests (but at least 64K),
@@ -207,10 +265,11 @@ namespace galloc {
 			//	TODO: don't allocate objects on pages with chunk sizes > 2 * object size
 			//
 			template<class Hint>
-			dhpage(const Hint* /*--*/, size_t n)
+			dhpage(const Hint* /*--*/, size_t n, deferred_heap* heap)
 				: page{ std::max<size_t>(sizeof(Hint) * n * 2.62, 4096 /*good general default*/), 
 						std::max<size_t>(sizeof(Hint), 4) }
-				, live_starts(page.locations(), false)
+				, live_starts{ page.locations(), false }
+				, myheap{ heap }
 			{ }
 		};
 
@@ -277,7 +336,7 @@ namespace galloc {
 		find_dhpage_info_ret find_dhpage_info(T* p) noexcept;
 
 		template<class T>
-		T* allocate_from_existing_pages(std::size_t n);
+		std::pair<dhpage*, T*> allocate_from_existing_pages(std::size_t n);
 			
 		template<class T>
 		deferred_ptr<T> allocate(std::size_t n = 1);
@@ -323,8 +382,8 @@ namespace galloc {
 	//
 	template<class T>
 	class deferred_ptr : public deferred_heap::deferred_ptr_void {
-		deferred_ptr(T* p)
-			: deferred_ptr_void(p)
+		deferred_ptr(deferred_heap::dhpage* page, T* p)
+			: deferred_ptr_void{ page, p }
 		{ }
 
 		friend deferred_heap;
@@ -334,7 +393,7 @@ namespace galloc {
 		//	T* parameter, so that the T* overload can be private and the
 		//	nullptr overload can be public.)
 		//
-		deferred_ptr() : deferred_ptr_void(nullptr) { }
+		deferred_ptr() = default;
 
 		//	Construction and assignment from null. Note: The null constructor
 		//	is not defined as a combination default constructor in the usual
@@ -358,14 +417,14 @@ namespace galloc {
 
 		//	Copying with conversions (base -> derived, non-const -> const).
 		//
-		template<class U>
+		template<class U, class = typename enable_if<is_convertible<U*, T*>::value, void>::type>
 		deferred_ptr(const deferred_ptr<U>& that)
-			: deferred_ptr_void(static_cast<T*>((U*)(that.p)))			// ensure U* converts to T*
+			: deferred_ptr_void(that)
 		{ }
 
-		template<class U>
+		template<class U, class = typename enable_if<is_convertible<U*, T*>::value, void>::type>
 		deferred_ptr& operator=(const deferred_ptr<U>& that) noexcept {
-			deferred_ptr_void::operator=(static_cast<T*>((U*)that.p));	// ensure U* converts to T*
+			deferred_ptr_void::operator=(that);
 			return *this;
 		}
 
@@ -395,8 +454,6 @@ namespace galloc {
 			return deferred_ptr<T>(&t);
 		}
 
-
-		// this is the right way to do totally ordered comparisons, maybe someday it'll be standard
 		int compare3(const deferred_ptr& that) const { return get() < that.get() ? -1 : get() == that.get() ? 0 : 1; };
 		GALLOC_TOTALLY_ORDERED_COMPARISON(deferred_ptr);	// maybe someday this will be default
 													
@@ -535,8 +592,8 @@ namespace galloc {
 
 	template<>
 	class deferred_ptr<void> : public deferred_heap::deferred_ptr_void {
-		deferred_ptr(void* p)
-			: deferred_ptr_void(p)
+		deferred_ptr(deferred_heap::dhpage* page, void* p)
+			: deferred_ptr_void(page, p)
 		{ }
 
 		friend deferred_heap;
@@ -627,15 +684,15 @@ namespace galloc {
 		//	enregister and therefore change our data structurs)
 		is_destroying = true;
 
-		//	when destroying the arena, reset all pointers and run all destructors 
+		//	when destroying the arena, detach all pointers and run all destructors 
 		//
 		for (auto& p : roots) {
-			const_cast<deferred_ptr_void*>(p)->reset();
+			const_cast<deferred_ptr_void*>(p)->detach();
 		}
 
 		for (auto& pg : pages) {
 			for (auto& p : pg.deferred_ptrs) {
-				const_cast<deferred_ptr_void*>(p.p)->reset();
+				const_cast<deferred_ptr_void*>(p.p)->detach();
 			}
 		}
 
@@ -719,37 +776,37 @@ namespace galloc {
 	}
 
 	template<class T>
-	T* deferred_heap::allocate_from_existing_pages(std::size_t n) {
-		T* p = nullptr;
+	std::pair<deferred_heap::dhpage*, T*> deferred_heap::allocate_from_existing_pages(std::size_t n) {
 		for (auto& pg : pages) {
-			p = pg.page.allocate<T>(n);
+			auto p = pg.page.allocate<T>(n);
 			if (p != nullptr)
-				break;
+				return{ &pg, p };
 		}
-		return p;
+		return{ nullptr, nullptr };
 	}
 
 	template<class T>
 	deferred_ptr<T> deferred_heap::allocate(std::size_t n) 
 	{
 		//	get raw memory from the backing storage...
-		T* p = allocate_from_existing_pages<T>(n);
+		auto p = allocate_from_existing_pages<T>(n);
 
 		//	... performing a collection if necessary ...
-		if (p == nullptr && collect_before_expand) {
+		if (p.second == nullptr && collect_before_expand) {
 			collect();
 			p = allocate_from_existing_pages<T>(n);
 		}
 
 		//	... allocating another page if necessary
-		if (p == nullptr) {
+		if (p.second == nullptr) {
 			//	pass along the type hint for size/alignment
-			pages.emplace_back((T*)nullptr, n);
-			p = pages.back().page.allocate<T>(n);
+			pages.emplace_back((T*)nullptr, n, this);
+			p.first = &pages.back();	// TODO just use emplace_back's return in a C++17 STL
+			p = { p.first, p.first->page.allocate<T>(n) };
 		}
 
-		assert(p != nullptr && "failed to allocate but didn't throw an exception");
-		return p;
+		assert(p.second != nullptr && "failed to allocate but didn't throw an exception");
+		return{ p.first, p.second };
 	}
 
 	template<class T, class ...Args>
