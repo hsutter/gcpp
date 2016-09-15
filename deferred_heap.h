@@ -131,20 +131,14 @@ namespace galloc {
 	//----------------------------------------------------------------------------
 
 	class deferred_heap {
-		friend deferred_heap& global_deferred_heap();	// TODO
-
 		class  deferred_ptr_void;
 		friend class deferred_ptr_void;
 
 		template<class T> friend class deferred_ptr;
 		template<class T> friend class deferred_allocator;
 
-		//	TODO Can only be used via the global global_deferred_heap() accessor.
-		deferred_heap()  			  = default;
-		~deferred_heap();
-
 		//	Disable copy and move
-		deferred_heap(deferred_heap&)		  = delete;
+		deferred_heap(deferred_heap&)  = delete;
 		void operator=(deferred_heap&) = delete;
 
 		//	Add/remove a deferred_ptr in the tracking list.
@@ -212,6 +206,9 @@ namespace galloc {
 
 				//	Otherwise, we must be unattached or pointing into the same heap
 				else {
+					//	We could make this a run-time error and throw an exception,
+					//	but I generally prefer asserts for things that are bugs in
+					//	the caller's code -- no check in release, but will fire in test
 					assert((mypage == nullptr || mypage->myheap == that.mypage->myheap)
 						&& "cannot assign deferred_ptrs into different deferred_heaps");
 					p = that.p;
@@ -277,13 +274,23 @@ namespace galloc {
 		//------------------------------------------------------------------------
 		//	Data: Storage and tracking information
 		//
-		std::list<dhpage>						pages;
-		std::unordered_set<const deferred_ptr_void*>	roots;	// outside deferred heap
-		destructors								dtors;
+		std::list<dhpage>							 pages;
+		std::unordered_set<const deferred_ptr_void*> roots;	// outside deferred heap
+		destructors									 dtors;
+
 		bool is_destroying = false;
-		bool collect_before_expand = false;
+		bool collect_before_expand = false;		// TODO is this worth keeping?
+
 
 	public:
+		//------------------------------------------------------------------------
+		//
+		//	Construct and destroy
+		//
+		deferred_heap() = default;
+
+		~deferred_heap();
+
 		//------------------------------------------------------------------------
 		//
 		//	make: Allocate one object of type T initialized with args
@@ -465,7 +472,7 @@ namespace galloc {
 			assert(get() != nullptr 
 				&& "bad deferred_ptr arithmetic: can't perform arithmetic on a null pointer");
 
-			auto this_info = global_deferred_heap().find_dhpage_info(get());
+			auto this_info = find_dhpage_info(get());
 
 			assert(this_info.page != nullptr
 				&& "corrupt non-null deferred_ptr, not pointing into deferred heap");
@@ -474,7 +481,7 @@ namespace galloc {
 				&& "corrupt non-null deferred_ptr, pointing to unallocated memory");
 
 			auto temp = get() + offset;
-			auto temp_info = global_deferred_heap().find_dhpage_info(temp);
+			auto temp_info = find_dhpage_info(temp);
 
 			assert(this_info.page == temp_info.page 
 				&& "bad deferred_ptr arithmetic: attempt to leave dhpage");
@@ -547,8 +554,8 @@ namespace galloc {
 			assert(get() != nullptr && that.get() != nullptr
 				&& "bad deferred_ptr arithmetic: can't subtract pointers when one is null");
 
-			auto this_info = global_deferred_heap().find_dhpage_info(get());
-			auto that_info = global_deferred_heap().find_dhpage_info(that.get());
+			auto this_info = find_dhpage_info(get());
+			auto that_info = find_dhpage_info(that.get());
 
 			assert(this_info.page != nullptr
 				&& that_info.page != nullptr
@@ -653,21 +660,6 @@ namespace galloc {
 			return get(); 
 		}
 	};
-
-
-	//	Allocate one object of type T initialized with args
-	//
-	template<class T, class ...Args>
-	deferred_ptr<T> make_deferred(Args&&... args) {
-		return global_deferred_heap().make<T>( std::forward<Args>(args)... );
-	}
-
-	//	Allocate an array of n objects of type T
-	//
-	template<class T>
-	deferred_ptr<T> make_deferred_array(std::size_t n) {
-		return global_deferred_heap().make_array<T>(n);
-	}
 
 
 	//----------------------------------------------------------------------------

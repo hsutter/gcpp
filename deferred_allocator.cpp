@@ -16,12 +16,10 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 
-#include "deferred_heap.h"
+#include "deferred_allocator.h"
 
-namespace galloc {
+namespace galloc::detail {
 
-	//	For now, there's just one global deferred_heap (will allow multiple local deferred_heaps soon)
-	//
 	deferred_heap& global_deferred_heap() {
 		static deferred_heap the_arena;
 		return the_arena;

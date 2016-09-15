@@ -109,35 +109,37 @@ void test_page() {
 //
 //----------------------------------------------------------------------------
 
-void test_global_deferred_heap() {
+void test_deferred_heap() {
+	deferred_heap heap;
+
 	vector<deferred_ptr<int>> v;
 	vector<deferred_ptr<array<char, 10>>> va;
-	global_deferred_heap().debug_print();
+	heap.debug_print();
 
-	//v.emplace_back(make_deferred<int>());
-	//global_deferred_heap().debug_print();
+	//v.emplace_back(heap.make<int>());
+	//heap.debug_print();
 
-	va.emplace_back(make_deferred<array<char, 10>>());
-	//global_deferred_heap().debug_print();
+	va.emplace_back(heap.make<array<char, 10>>());
+	//heap.debug_print();
 
-	//v.emplace_back(make_deferred<int>());
-	//global_deferred_heap().debug_print();
+	//v.emplace_back(heap.make<int>());
+	//heap.debug_print();
 
-	//v.emplace_back(make_deferred<int>());
-	//global_deferred_heap().debug_print();
+	//v.emplace_back(heap.make<int>());
+	//heap.debug_print();
 
-	//v.erase(v.begin() + 1);//global_deferred_heap().debug_print();
+	//v.erase(v.begin() + 1);//heap.debug_print();
 
-	auto x = make_deferred<node>();
-	x->plugh = make_deferred<node>();
+	auto x = heap.make<node>();
+	x->plugh = heap.make<node>();
 	x->plugh->xyzzy = x; // make a cycle
 	x = nullptr;		// now the cycle is unreachable
 
-	global_deferred_heap().debug_print();
+	heap.debug_print();
 
-	global_deferred_heap().collect();		// collects the cycle
+	heap.collect();		// collects the cycle
 
-	global_deferred_heap().debug_print();
+	heap.debug_print();
 }
 
 
@@ -148,7 +150,7 @@ void test_global_deferred_heap() {
 //----------------------------------------------------------------------------
 
 template<class T>
-void time_deferred_shared(int N) {
+void time_shared(int N) {
 	vector<shared_ptr<T>> v;
 	auto start = std::chrono::high_resolution_clock::now();
 	for (int i = 0; i < N; ++i)
@@ -160,11 +162,11 @@ void time_deferred_shared(int N) {
 }
 
 template<class T>
-void time_deferred_deferred(int N) {
+void time_deferred(deferred_heap& heap, int N) {
 	vector<deferred_ptr<T>> v;
 	auto start = std::chrono::high_resolution_clock::now();
 	for (int i = 0; i < N; ++i) {
-		v.push_back(make_deferred<T>());
+		v.push_back(heap.make<T>());
 	}
 	auto end = std::chrono::high_resolution_clock::now();
 	cout << "\tdeferred_ptr (" << N << ") time: "
@@ -172,14 +174,15 @@ void time_deferred_deferred(int N) {
 		<< "ms\n";
 }
 
-void time_global_deferred_heap() {
+void time_deferred_heap() {
+	deferred_heap heap;
 	for (int i = 10; i < 11000; i *= 2) {
-		time_deferred_shared<int>(i);
-		time_deferred_deferred<int>(i);
-		//global_deferred_heap().debug_print();
-		//global_deferred_heap().collect();
-		//global_deferred_heap().debug_print();
+		time_shared<int>(i);
+		time_deferred<int>(heap, i);
 	}
+	//heap.debug_print();
+	//heap.collect();
+	//heap.debug_print();
 }
 
 
@@ -209,6 +212,8 @@ void test_deferred_allocator() {
 //----------------------------------------------------------------------------
 
 void test_deferred_allocator_set() {
+	auto& heap = deferred_allocator<widget>::heap();
+
 	set<widget, less<widget>, deferred_allocator<widget>> s;
 	s.insert(2);
 	s.insert(1);
@@ -218,11 +223,11 @@ void test_deferred_allocator_set() {
 	auto i = s.begin();
 	s.erase(i);
 
-	global_deferred_heap().debug_print();	// at this point the second node allocated (which was 1 and therefore pointed to by i)
+	heap.debug_print();	// at this point the second node allocated (which was 1 and therefore pointed to by i)
 						// is unreachable from within the tree but reachable from i
 
-	global_deferred_heap().collect();
-	global_deferred_heap().debug_print();	// the erased node is still there, because i kept it alive
+	heap.collect();
+	heap.debug_print();	// the erased node is still there, because i kept it alive
 
 	cout << "i -> (" << *i << ")\n";	// i points to 1
 	++i;								// navigate -- to node that used to be the right child
@@ -230,8 +235,8 @@ void test_deferred_allocator_set() {
 
 	i = s.begin();	// now make the iterator point back into the container, making the erased node unreachable
 
-	global_deferred_heap().collect();
-	global_deferred_heap().debug_print();	// now the erased node is deleted (including correctly destroyed)
+	heap.collect();
+	heap.debug_print();	// now the erased node is deleted (including correctly destroyed)
 }
 
 
@@ -242,9 +247,9 @@ void test_deferred_allocator_set() {
 //----------------------------------------------------------------------------
 
 void test_deferred_allocator_vector() {
-	{
-		global_deferred_heap().set_collect_before_expand(true);
+	auto& heap = deferred_allocator<widget>::heap();
 
+	{
 		vector<widget, deferred_allocator<widget>> v;
 		auto iter = v.begin();
 
@@ -255,29 +260,29 @@ void test_deferred_allocator_vector() {
 				cout << "RESIZED! new size is " << v.size()
 					<< " and capacity is " << v.capacity() << '\n';
 				old_capacity = v.capacity();
-				global_deferred_heap().debug_print();
+				heap.debug_print();
 			}
 			if (i == 1) {
 				iter = begin(v) + 1;	// keeps alive one of the vector buffers; on MSVC, points to an interior element
 			}
 		}
 
-		global_deferred_heap().collect();
-		global_deferred_heap().debug_print();	// now we have the current (largest) vector buffer alive, as well as
+		heap.collect();
+		heap.debug_print();	// now we have the current (largest) vector buffer alive, as well as
 							// one of the earlier smaller ones kept alive by i
 
 		iter = v.begin();	// now remove the last iterator referring to that earlier buffer
 
-		global_deferred_heap().collect();
-		global_deferred_heap().debug_print();	// now we have only the current buffer alive
+		heap.collect();
+		heap.debug_print();	// now we have only the current buffer alive
 
 		v.pop_back();	// this logically removes the last element as usual, but does NOT destroy it
 		v.push_back(999);	// this destroys the element previously in that location before
 							// constructing the new one to avoid overlapping object lifetimes
 							// (this happens automatically inside construct())
 	}
-	global_deferred_heap().collect();
-	global_deferred_heap().debug_print();
+	heap.collect();
+	heap.debug_print();
 }
 
 
@@ -303,9 +308,9 @@ void time_deferred_allocator_set() {
 	for (int i = 10; i < 11000; i *= 2) {
 		time_set<set<int>>("set<int>", i);
 		time_set<set<int, less<int>, deferred_allocator<int>>>("set<int,>", i);
-		//global_deferred_heap().debug_print();
-		//global_deferred_heap().collect();
-		//global_deferred_heap().debug_print();
+		//heap.debug_print();
+		//heap.collect();
+		//heap.debug_print();
 	}
 }
 
@@ -322,36 +327,39 @@ void time_vec(const char* sz, int N) {
 }
 
 void time_deferred_allocator_vector() {
+	auto& heap = deferred_allocator<widget>::heap();
+
 	for (int i = 10; i < 11000; i *= 2) {
 		//time_vec<vector<int>>("vector<int>", i);
 		time_vec<vector<int, deferred_allocator<int>>>("vector<int,deferred>", i);
-		//global_deferred_heap().debug_print();
-		//global_deferred_heap().collect();
-		//global_deferred_heap().debug_print();
+		//heap.debug_print();
+		//heap.collect();
+		//heap.debug_print();
 	}
 }
 
 void test_deferred_array() {
+	deferred_heap heap;
 	vector<deferred_ptr<widget>> v;
 
-	v.push_back(make_deferred_array<widget>(3));
-	global_deferred_heap().debug_print();
+	v.push_back(heap.make_array<widget>(3));
+	heap.debug_print();
 
-	v.push_back(make_deferred_array<widget>(2));
-	global_deferred_heap().debug_print();
+	v.push_back(heap.make_array<widget>(2));
+	heap.debug_print();
 
-	v.push_back(make_deferred_array<widget>(4));
+	v.push_back(heap.make_array<widget>(4));
 
-	global_deferred_heap().debug_print();
+	heap.debug_print();
 
-	v.push_back(make_deferred_array<widget>(3));
+	v.push_back(heap.make_array<widget>(3));
 
-	global_deferred_heap().debug_print();
+	heap.debug_print();
 
 	v.erase(v.begin() + 2);
 
-	global_deferred_heap().collect();
-	global_deferred_heap().debug_print();
+	heap.collect();
+	heap.debug_print();
 
 }
 
@@ -359,12 +367,12 @@ void test_deferred_array() {
 int main() {
 	//test_page();
 
-	//test_global_deferred_heap();
-	time_global_deferred_heap();
+	//test_deferred_heap();
+	//time_deferred_heap();
 
 	//test_deferred_allocator();
 
-	//test_deferred_allocator_set();
+	test_deferred_allocator_set();
 	//time_deferred_allocator_set();
 
 	//test_deferred_allocator_vector();
@@ -372,7 +380,7 @@ int main() {
 
 	//test_deferred_array();
 
-	//global_deferred_heap().collect();
-	//global_deferred_heap().debug_print();
+	//heap.collect();
+	//heap.debug_print();
 }
 

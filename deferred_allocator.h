@@ -23,6 +23,13 @@
 
 namespace galloc {
 
+//private:
+	namespace detail {
+		deferred_heap& global_deferred_heap();
+	}
+
+//public:
+
 	//----------------------------------------------------------------------------
 	//
 	//	deferred_allocator - wrap up global_deferred_heap() as a C++14 allocator, with thanks to
@@ -60,7 +67,7 @@ namespace galloc {
 
 		pointer allocate(size_type n) 
 		{
-			return global_deferred_heap().allocate<value_type>(n);
+			return heap().allocate<value_type>(n);
 		}
 
 		void deallocate(pointer, size_type) noexcept
@@ -75,13 +82,13 @@ namespace galloc {
 		template <class U, class ...Args>
 		void construct(U* p, Args&& ...args) 
 		{
-			global_deferred_heap().construct(p, std::forward<Args>(args)...);
+			heap().construct(p, std::forward<Args>(args)...);
 		}
 
 		template <class U>
 		void destroy(U* p) noexcept
 		{
-			global_deferred_heap().destroy(p);
+			heap().destroy(p);
 		}
 
 		size_type max_size() const noexcept 
@@ -98,6 +105,10 @@ namespace galloc {
 		using propagate_on_container_move_assignment = std::true_type;
 		using propagate_on_container_swap            = std::true_type;
 		using is_always_equal                        = std::true_type;
+
+		static deferred_heap& heap() {
+			return detail::global_deferred_heap();
+		}
 	};
 
 	template <class T, class U>
