@@ -34,7 +34,7 @@ _**gcpp is not**_:
 
 _**gcpp will not ever**_ trace the whole C++ heap, incur uncontrollable or global pauses, add a "finalizer" concept, permit object "resurrection," be recommended as a default allocator, or replace `unique_ptr` and `shared_ptr` -- we are very happy with C++'s current lifetime model, and the aim here is only to see if we can add a fourth fallback when today's options are insufficient to replace code we would otherwise have to write by hand in a custom way for each place we need it.
 
-## Two target use cases
+## Target use cases
 
 gcpp aims to address three main issues, and a speculative use case.
 
@@ -60,13 +60,15 @@ Today, deadline-driven code must either avoid manipulating `shared_ptr`s or take
 
 - Deferring destruction by storing additional strong references in a separate "keepalive" data structure allows tracing to be performed later, outside the critical code region, to identify and destroy those objects no longer referred to from outside the keepalive structure. However, this amounts to another form of manually implemented liveness tracing.
 
-By design, `deferred_ptr` has trivial assignment which always has bounded cost suitable for use in a critical section (same as copying a raw pointer), and `deferred_heap` gives full control over when and where `collect()` runs deferred destructors. This makes it a candidate for being appropriate for real-time code in situations where using `shared_ptr` is problematic.
+By design, `deferred_ptr` assignment cost is bounded and unrelated to destructors, and `deferred_heap` gives full control over when and where `collect()` runs deferred destructors. This makes it a candidate for being appropriate for real-time code in situations where using `shared_ptr` may be problematic.
 
 ### 3. Constrained systems, bounding stack depth of destruction
 
-Using `unique_ptr` and `shared_ptr` can be problematic in systems with constrained stack space and deep ownership. Because destructors are always run transitively and nested, the thread that releases an object must have sufficient stack space for the call depth required to destroy the tree of objects being released. If the tree can be arbitrarily deep, an arbitrary about of stack space may be needed.
+Using `unique_ptr` and `shared_ptr` can be problematic in systems with constrained stack space and deep ownership. Because destructors are always run nested (recursively), the thread that releases an object must have sufficient stack space for the call depth required to destroy the tree of objects being released. If the tree can be arbitrarily deep, an arbitrary about of stack space may be needed.
 
 Today, systems with constrained stacks use similar techniques to those mentioned in #2 above, with similar limitations and tradeoffs.
+
+By design, `deferred_heap` runs deferred destructors iteratively, not recursively. Of course, an *individual* deferred object may still own a tree of resources that may use `shared_ptr`s and be freed recursively, but any two deferred objects are destroyed iteratively even if they referred to each other and their destructors never nest. This makes it a candidate for being appropriate for real-time code in situations where using `shared_ptr` may be problematic.
 
 ### (speculative) Possible bonus use case: deferred_allocator for STL containers 
 
