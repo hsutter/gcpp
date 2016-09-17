@@ -16,8 +16,8 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 
-#ifndef GALLOC_GPAGE
-#define GALLOC_GPAGE
+#ifndef GCPP_GPAGE
+#define GCPP_GPAGE
 
 #include "bitflags.h"
 
@@ -31,7 +31,7 @@
 #include <string>
 //#endif
 
-namespace galloc {
+namespace gcpp {
 
 	//----------------------------------------------------------------------------
 	//
@@ -165,9 +165,10 @@ namespace galloc {
 		//	alignment of location needed by a T
 		const auto locations_step = 1 + (alignof(T)-1) / min_alloc;
 
-		//	# contiguous locations needed total (note: array allocations get one 
-		//	extra location as a simple way to support one-past-the-end arithmetic)
-		const auto locations_needed = (1 + (bytes_needed - 1) / min_alloc) + (num > 1 ? 1 : 0);
+		//	# contiguous locations needed total
+		//	note: as a simplification, for now we just add an extra location to every 
+		//	      allocation as a simple way to support one-past-the-end arithmetic
+		const auto locations_needed = (1 + (bytes_needed - 1) / min_alloc) + 1;
 
 		const auto end = locations() - locations_needed;
 		//	intentionally omitting "+1" here in order to keep the 
@@ -327,6 +328,11 @@ namespace galloc {
 		std::cout << "--- total_size " << total_size << " --- min_alloc " << min_alloc
 			<< " --- " << (void*)base << " ---------------------------\n     ";
 
+		for (std::size_t i = 0; i < 64; i += 2) {
+			std::cout << lowest_hex_digits_of_address(base + i*min_alloc,2)[0] << ' ';
+			if (i % 8 == 6) { std::cout << ' '; }
+		}
+		std::cout << "\n     ";
 		for (std::size_t i = 0; i < 64; i += 2) {
 			std::cout << lowest_hex_digits_of_address(base + i*min_alloc) << ' ';
 			if (i % 8 == 6) { std::cout << ' '; }

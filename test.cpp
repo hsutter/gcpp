@@ -23,7 +23,7 @@
 //----------------------------------------------------------------------------
 
 #include "deferred_allocator.h"
-using namespace galloc;
+using namespace gcpp;
 
 #include <iostream>
 #include <vector>
@@ -61,7 +61,7 @@ struct widget {
 	operator long() const { return v; }
 
 	int compare3(const widget& that) const { return v < that.v ? -1 : v == that.v ? 0 : 1; };
-	GALLOC_TOTALLY_ORDERED_COMPARISON(widget);	// maybe someday this will be default
+	GCPP_TOTALLY_ORDERED_COMPARISON(widget);	// maybe someday this will be default
 };
 
 struct node {
@@ -194,9 +194,10 @@ void time_deferred_heap() {
 //----------------------------------------------------------------------------
 
 void test_deferred_allocator() {
+	deferred_heap heap;
 
 	using X = std::allocator_traits<deferred_allocator<int>>;
-	deferred_allocator<int> x;
+	deferred_allocator<int> x(heap);
 
 	auto p = X::allocate(x, 1);
 	X::construct(x, p.get(), 1);
@@ -212,9 +213,9 @@ void test_deferred_allocator() {
 //----------------------------------------------------------------------------
 
 void test_deferred_allocator_set() {
-	auto& heap = deferred_allocator<widget>::heap();
+	deferred_heap heap;
 
-	set<widget, less<widget>, deferred_allocator<widget>> s;
+	auto s = deferred_set<widget>(heap);
 	s.insert(2);
 	s.insert(1);
 	s.insert(3);
@@ -247,10 +248,11 @@ void test_deferred_allocator_set() {
 //----------------------------------------------------------------------------
 
 void test_deferred_allocator_vector() {
-	auto& heap = deferred_allocator<widget>::heap();
+	deferred_heap heap;
+	heap.set_collect_before_expand(true);
 
 	{
-		vector<widget, deferred_allocator<widget>> v;
+		auto v = deferred_vector<widget>(heap);
 		auto iter = v.begin();
 
 		auto old_capacity = v.capacity();
@@ -293,8 +295,7 @@ void test_deferred_allocator_vector() {
 //----------------------------------------------------------------------------
 
 template<class Set>
-void time_set(const char* sz, int N) {
-	Set s;
+void time_set(Set s, const char* sz, int N) {
 	auto start = std::chrono::high_resolution_clock::now();
 	for (int i = 0; i < N; ++i)
 		s.insert(i);
@@ -305,9 +306,13 @@ void time_set(const char* sz, int N) {
 }
 
 void time_deferred_allocator_set() {
+	deferred_heap heap;
+	auto s = set<int>();
+	auto s2 = deferred_set<int>(heap);
+
 	for (int i = 10; i < 11000; i *= 2) {
-		time_set<set<int>>("set<int>", i);
-		time_set<set<int, less<int>, deferred_allocator<int>>>("set<int,>", i);
+		time_set(s, "set<int>", i);
+		time_set(s2, "deferred_set<int>", i);
 		//heap.debug_print();
 		//heap.collect();
 		//heap.debug_print();
@@ -315,8 +320,7 @@ void time_deferred_allocator_set() {
 }
 
 template<class Vec>
-void time_vec(const char* sz, int N) {
-	Vec v;
+void time_vec(Vec v, const char* sz, int N) {
 	auto start = std::chrono::high_resolution_clock::now();
 	for (int i = 0; i < N; ++i)
 		v.push_back(i);
@@ -327,11 +331,13 @@ void time_vec(const char* sz, int N) {
 }
 
 void time_deferred_allocator_vector() {
-	auto& heap = deferred_allocator<widget>::heap();
+	deferred_heap heap;
+	auto v = vector<widget>();
+	auto v2 = deferred_vector<widget>(heap);
 
 	for (int i = 10; i < 11000; i *= 2) {
-		//time_vec<vector<int>>("vector<int>", i);
-		time_vec<vector<int, deferred_allocator<int>>>("vector<int,deferred>", i);
+		//time_vec(v, "vector<int>", i);
+		time_vec(v, "deferred_vector<int>", i);
 		//heap.debug_print();
 		//heap.collect();
 		//heap.debug_print();
@@ -364,7 +370,7 @@ void test_deferred_array() {
 }
 
 
-int main() {
+int _main() {
 	//test_page();
 
 	//test_deferred_heap();
@@ -372,15 +378,17 @@ int main() {
 
 	//test_deferred_allocator();
 
-	test_deferred_allocator_set();
+	//test_deferred_allocator_set();
 	//time_deferred_allocator_set();
 
-	//test_deferred_allocator_vector();
+	test_deferred_allocator_vector();
 	//time_deferred_allocator_vector();
 
 	//test_deferred_array();
 
 	//heap.collect();
 	//heap.debug_print();
+
+	return 0;
 }
 

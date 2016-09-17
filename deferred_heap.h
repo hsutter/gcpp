@@ -16,8 +16,8 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 
-#ifndef GALLOC_DEFERRED_HEAP
-#define GALLOC_DEFERRED_HEAP
+#ifndef GCPP_DEFERRED_HEAP
+#define GCPP_DEFERRED_HEAP
 
 #include "gpage.h"
 
@@ -29,7 +29,7 @@
 #include <type_traits>
 #include <memory>
 
-namespace galloc {
+namespace gcpp {
 
 	//  destructor contains a pointer and type-correct-but-erased dtor call.
 	//  (Happily, a noncapturing lambda decays to a function pointer, which
@@ -235,6 +235,8 @@ namespace galloc {
 			}
 
 			void  reset() noexcept { p = nullptr; /* leave mypage alone so we can assign again */ }
+
+			deferred_heap* get_heap() const noexcept { return mypage ? mypage->myheap : nullptr; }
 		};
 
 		//	For non-roots (deferred_ptrs that are in the deferred heap), we'll additionally
@@ -263,7 +265,7 @@ namespace galloc {
 			//
 			template<class Hint>
 			dhpage(const Hint* /*--*/, size_t n, deferred_heap* heap)
-				: page{ std::max<size_t>(sizeof(Hint) * n * 2.62, 4096 /*good general default*/), 
+				: page{ std::max<size_t>(sizeof(Hint) * n * 2.62, 8192 /*good general default*/), 
 						std::max<size_t>(sizeof(Hint), 4) }
 				, live_starts{ page.locations(), false }
 				, myheap{ heap }
@@ -279,7 +281,7 @@ namespace galloc {
 		destructors									 dtors;
 
 		bool is_destroying = false;
-		bool collect_before_expand = false;		// TODO is this worth keeping?
+		bool collect_before_expand = false;
 
 
 	public:
@@ -462,17 +464,17 @@ namespace galloc {
 		}
 
 		int compare3(const deferred_ptr& that) const { return get() < that.get() ? -1 : get() == that.get() ? 0 : 1; };
-		GALLOC_TOTALLY_ORDERED_COMPARISON(deferred_ptr);	// maybe someday this will be default
+		GCPP_TOTALLY_ORDERED_COMPARISON(deferred_ptr);	// maybe someday this will be default
 													
 													
 		//	Checked pointer arithmetic -- TODO this should probably go into a separate array_deferred_ptr type
 		//
 		deferred_ptr& operator+=(int offset) noexcept {
 #ifndef NDEBUG
-			assert(get() != nullptr 
+			assert(get() != nullptr
 				&& "bad deferred_ptr arithmetic: can't perform arithmetic on a null pointer");
 
-			auto this_info = find_dhpage_info(get());
+			auto this_info = get_heap()->find_dhpage_info(get());
 
 			assert(this_info.page != nullptr
 				&& "corrupt non-null deferred_ptr, not pointing into deferred heap");
@@ -481,9 +483,9 @@ namespace galloc {
 				&& "corrupt non-null deferred_ptr, pointing to unallocated memory");
 
 			auto temp = get() + offset;
-			auto temp_info = find_dhpage_info(temp);
+			auto temp_info = get_heap()->find_dhpage_info(temp);
 
-			assert(this_info.page == temp_info.page 
+			assert(this_info.page == temp_info.page
 				&& "bad deferred_ptr arithmetic: attempt to leave dhpage");
 
 			assert(
@@ -492,7 +494,7 @@ namespace galloc {
 				//	which covers one-past-the-end of single-element allocations
 				(	(
 					this_info.info.found == gpage::in_range_allocated_start
-					&& (offset == 0 || offset == 1)
+					&& (offset == -1 || offset == 0 || offset == 1)
 					)
 				//	otherwise this and temp must point into the same allocation
 				//	which is covered for arrays by the extra byte we allocated
@@ -554,8 +556,8 @@ namespace galloc {
 			assert(get() != nullptr && that.get() != nullptr
 				&& "bad deferred_ptr arithmetic: can't subtract pointers when one is null");
 
-			auto this_info = find_dhpage_info(get());
-			auto that_info = find_dhpage_info(that.get());
+			auto this_info = get_heap()->find_dhpage_info(get());
+			auto that_info = get_heap()->find_dhpage_info(that.get());
 
 			assert(this_info.page != nullptr
 				&& that_info.page != nullptr
@@ -1046,9 +1048,10 @@ namespace galloc {
 	inline
 	void deferred_heap::debug_print() const 
 	{
+		std::cout << "\n*** heap snapshot [" << (void*)this << "] ***********************************************\n\n";
 		for (auto& pg : pages) {
 			pg.page.debug_print();
-			std::cout << "  this page's deferred_ptrs.size() is " << pg.deferred_ptrs.size() << "\n";
+			std::cout << "\n  this page's deferred_ptrs.size() is " << pg.deferred_ptrs.size() << "\n";
 			for (auto& dp : pg.deferred_ptrs) {
 				std::cout << "    " << (void*)dp.p << " -> " << dp.p->get()
 					<< ", level " << dp.level << "\n";
