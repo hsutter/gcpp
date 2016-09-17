@@ -22,7 +22,7 @@ private:
 int Counter::count_ = 0;
 
 
-//*--- Solution 1 (default) ----------------------------------------------------
+/*--- Solution 1 (default) ----------------------------------------------------
 
 class MyGraph {
 public:
@@ -82,11 +82,10 @@ public:
 	}
 
 	static auto MakeNode() { return heap.make<MyGraph::Node>(); }
+
 private:
 	deferred_ptr<Node> root;
 };
-
-void clean() { heap.collect(); }
 
 // ----------------------------------------------------------------------------
 //*/
@@ -142,7 +141,7 @@ bool TestCase3() {
 	return Counter::count() == 4;
 }
 
-int main() {
+int _main() {
 	cout.setf(ios::boolalpha);
 
 	bool passed1 = TestCase1();

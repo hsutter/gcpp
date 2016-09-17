@@ -140,6 +140,23 @@ void test_deferred_heap() {
 	heap.collect();		// collects the cycle
 
 	heap.debug_print();
+
+
+	// test aliasing
+	//
+	struct Test {
+		int i = 42;
+		double d = 3.14159;
+	};
+	auto pt = heap.make<Test>();
+	cout << "pt [" << (void*)pt.get() << "]\n";
+	deferred_ptr<int> pi{ pt, pt->i };
+	cout << "pi [" << (void*)pi.get() << "] is " << *pi << "\n";
+	deferred_ptr<double> pd{ pt, pt->d };
+	cout << "pd [" << (void*)pd.get() << "] is " << *pd << "\n";
+	
+	double d = 666.666;
+	// deferred_ptr<double> pd2{ pt, d };	// this line is UB, will assert in debug mode
 }
 
 
@@ -370,10 +387,10 @@ void test_deferred_array() {
 }
 
 
-int _main() {
+int main() {
 	//test_page();
 
-	//test_deferred_heap();
+	test_deferred_heap();
 	//time_deferred_heap();
 
 	//test_deferred_allocator();
@@ -381,7 +398,7 @@ int _main() {
 	//test_deferred_allocator_set();
 	//time_deferred_allocator_set();
 
-	test_deferred_allocator_vector();
+	//test_deferred_allocator_vector();
 	//time_deferred_allocator_vector();
 
 	//test_deferred_array();

@@ -229,14 +229,16 @@ namespace gcpp {
 				mypage = nullptr;
 			}
 
+			dhpage* get_page() const noexcept { return mypage; }
+
 		public:
-			void* get() const noexcept { 
+			deferred_heap* get_heap() const noexcept { return mypage ? mypage->myheap : nullptr; }
+
+			void* get() const noexcept {
 				return p;
 			}
 
 			void  reset() noexcept { p = nullptr; /* leave mypage alone so we can assign again */ }
-
-			deferred_heap* get_heap() const noexcept { return mypage ? mypage->myheap : nullptr; }
 		};
 
 		//	For non-roots (deferred_ptrs that are in the deferred heap), we'll additionally
@@ -435,6 +437,33 @@ namespace gcpp {
 		deferred_ptr& operator=(const deferred_ptr<U>& that) noexcept {
 			deferred_ptr_void::operator=(that);
 			return *this;
+		}
+
+		//	Aliasing conversion: Type-safely forming a pointer to data member of T of type U.
+		//
+		//	TODO: I wonder why this doesn't work, seems like it should; it would have the
+		//	      type safety of guaranteeing that we're pointing to a valid data member
+		//template<class U>
+		//deferred_ptr<U> make_alias(U T::*pU) {
+		//	assert(get() && "can't make_alias on a null pointer");
+		//	return{ get_page(), &(get()->*pU) };
+		//}
+		//
+		//	So for now we'll do this instead, shared_ptr trust-the-caller style:
+		//
+		template<class U>
+		explicit deferred_ptr(const deferred_ptr<U>& that, T& t) 
+			: deferred_ptr_void{ that }
+		{
+			set(&t);
+
+			assert(get_page() && get() && "can't alias from a null pointer");
+
+			//	If we can't get the type+bounds safe pointer to member approach above
+			//	to work, at least we can do a bounds check (if not a type check)...
+			assert((byte*)&t - (byte*)that.get() >= 0
+				&& (byte*)&t - (byte*)that.get() < (ptrdiff_t)sizeof(U)
+				&& "p must be a pointer into the object referred to by that.get()");
 		}
 
 		//	Accessors.
