@@ -21,7 +21,10 @@ private:
 
 int Counter::count_ = 0;
 
-class MyGraph1 {
+
+//*--- Solution 1 (default) ----------------------------------------------------
+
+class MyGraph {
 public:
 	class Node : public Counter {
 		vector<shared_ptr<Node>> children;
@@ -40,16 +43,22 @@ public:
 		root = node;
 	}
 
+	void ShrinkToFit() {
+	}
+
+	static auto MakeNode() { return make_shared<MyGraph::Node>(); }
+
 private:
 	shared_ptr<Node> root;
 };
 
+//--- Solution 2 (deferred_ptr) -----------------------------------------------
+/*/
 
 static deferred_heap heap;
 
-class MyGraph2 {
+class MyGraph {
 public:
-
 	class Node : public Counter {
 		deferred_vector<deferred_ptr<Node>> children{ heap };
 	public:
@@ -68,78 +77,68 @@ public:
 		root = node;
 	}
 
+	void ShrinkToFit() {
+		heap.collect();
+	}
+
+	static auto MakeNode() { return heap.make<MyGraph::Node>(); }
 private:
 	deferred_ptr<Node> root;
 };
 
+void clean() { heap.collect(); }
 
-/*
-using MyGraph = MyGraph1;
-auto make() { return make_shared<MyGraph::Node>(); }
-auto clean() { }
-/*/
-using MyGraph = MyGraph2;
-auto make() { return heap.make<MyGraph::Node>(); }
-auto clean() { 
-	//heap.debug_print(); 
-	heap.collect(); 
-	//heap.debug_print(); 
-}
+// ----------------------------------------------------------------------------
 //*/
 
+
 bool TestCase1() {
-	clean();
-	using Node = MyGraph::Node;
 	MyGraph g;
 	{
-		auto a = make();
+		auto a = MyGraph::MakeNode();
 		g.SetRoot(a);
-		auto b = make();
+		auto b = MyGraph::MakeNode();
 		a->AddChild(b);
-		auto c = make();
+		auto c = MyGraph::MakeNode();
 		b->AddChild(c);
 		a->RemoveChild(b);
 	}
-	clean();
+	g.ShrinkToFit();
 	return Counter::count() == 1;
 }
 
 bool TestCase2() {
-	clean();
-	using Node = MyGraph::Node;
 	MyGraph g;
 	{
-		auto a = make();
+		auto a = MyGraph::MakeNode();
 		g.SetRoot(a);
-		auto b = make();
+		auto b = MyGraph::MakeNode();
 		a->AddChild(b);
-		auto c = make();
+		auto c = MyGraph::MakeNode();
 		b->AddChild(c);
-		auto d = make();
+		auto d = MyGraph::MakeNode();
 		b->AddChild(d);
 		d->AddChild(b);
 		a->RemoveChild(b);
 	}
-	clean();
+	g.ShrinkToFit();
 	return Counter::count() == 1;
 }
 
 bool TestCase3() {
-	clean();
-	using Node = MyGraph::Node;
 	MyGraph g;
 	{
-		auto a = make();
+		auto a = MyGraph::MakeNode();
 		g.SetRoot(a);
-		auto b = make();
+		auto b = MyGraph::MakeNode();
 		a->AddChild(b);
-		auto c = make();
+		auto c = MyGraph::MakeNode();
 		b->AddChild(c);
-		auto d = make();
+		auto d = MyGraph::MakeNode();
 		b->AddChild(d);
 		d->AddChild(b);
 	}
-	clean();
+	g.ShrinkToFit();
 	return Counter::count() == 4;
 }
 
