@@ -1,22 +1,33 @@
-# **gcpp**: Demo of "deferred object lifetime as a library" for C++
+# **gcpp**: Deferred and unordered destruction
 
 Herb Sutter -- Updated 2016-09-15
 
 ## Overview
 
-The gcpp library is an experiment at how we might automate some support for deferred object lifetime as a library for the C++ toolbox. It aims to continue C++'s long tradition of being a great language for building libraries, including for memory allocation and lifetime management.
+gcpp is an experiment toward automating some support for deferred and unordered destruction.
+
+`deferred_heap` provides a local (sub)heap designed to be used by a class or module.
+
+- Calling `.make<T>()` allocates and constructs a new `T` object. If `T` is not trivially destructible, it will also record the destructor to be eventually invoked.
+
+- Calling `.collect()` traces this heap in isolation. Any unreachable objects will have their deferred destructors run before their memory is deallocated.
+
+
+### Approach
+
+gcpp aims to continue C++'s long tradition of being a great language for building libraries, including for memory allocation and lifetime management.
 
 - We already have `make_unique` and `unique_ptr` to automate managing the lifetime of a single uniquely owned heap object. Using them is as efficient as (and considerably easier and less brittle than) writing `new` and `delete` by hand.
 
 - Similarly, `make_shared` and `shared_ptr` automate managing the lifetime of a single shared heap object. Using them is usually as efficient as (and always easier and less brittle than) managing reference counts by hand.
 
-- In gcpp, `deferred_heap` and `deferred_ptr` take a stab at how we might automate managing the lifetime of a group of shared heap objects that (a) may contain cycles or (b) need deterministic pointer manipulation cost. The goal is that using them be usually as efficient as (and easier and more robuse than) managing ownership and writing custom tracing logic to discover and destroy unreachable objects by hand, including deferring and invoking destructors.
+- In gcpp, `deferred_heap` and `deferred_ptr` take a stab at how we might automate managing the lifetime of a group of shared heap objects that (a) may contain cycles or (b) need deterministic pointer manipulation space and time cost. The goal is that using them be usually as efficient as (and easier and more robust than) managing ownership and writing custom tracing logic by hand to discover and perform destruction of unreachable objects.
 
-## Goals and non-goals
+### Goals and non-goals
 
 _**gcpp is**_:
 
-- a demo of another fallback option for the rare cases where `unique_ptr`, `shared_ptr`, and `weak_ptr` aren't quite enough, notably when you have objects that refer to each other in owning cycles or when you need to defer destructor execution to meet real-time deadlines;
+- a demo of another fallback option for the rare cases where `unique_ptr`, `shared_ptr`, and `weak_ptr` aren't quite enough, notably when you have objects that refer to each other in owning cycles or when you need to defer destructor execution to meet real-time deadlines or bound destructor stack cost;
 
 - designed to encourage tactical isolated use, where each `deferred_heap` is its own little self-contained island of memory and objects;
 
@@ -32,7 +43,7 @@ _**gcpp is not**_:
 
 - well tested, so expect bugs.
 
-_**gcpp will not ever**_ trace the whole C++ heap, incur uncontrollable or global pauses, add a "finalizer" concept, permit object "resurrection," be recommended as a default allocator, or replace `unique_ptr` and `shared_ptr` -- we are very happy with C++'s current lifetime model, and the aim here is only to see if we can add a fourth fallback when today's options are insufficient to replace code we would otherwise have to write by hand in a custom way for each place we need it.
+_**gcpp will not ever**_ trace the whole C++ heap, incur uncontrollable or global pauses, add a "finalizer" concept, permit object "resurrection," be recommended as a default allocator, or replace `unique_ptr` and `shared_ptr` -- we are very happy with C++'s current lifetime model, and the aim here is only to see if we can add a fourth fallback when today's options are insufficient to replace code we would otherwise have to write by hand in a custom way every time we need it.
 
 ## Target use cases
 
@@ -92,6 +103,33 @@ The following summarizes the best practices we should already teach for expressi
 | [experimental] **4. Else use similar techniques as `deferred_heap` and `deferred_ptr`**, if the object must have its own lifetime (i.e., heap) and there can be ownership cycles | Potentially-cyclic shared heap object lifetime managed with liveness tracing<br><br>Real-time code with bounded pointer assignment cost requirements<br><br>Constrained stacks with bounded call depth requirements | (conjecture) Usually identical cost as correctly written manual tracing | (conjecture) Clearer and more robust than manual/custom tracing logic (declarative, uses are correct by construction) |
 
 
+# FAQs
+
+## Q: "Isn't `deferred_heap` just a region?"
+
+`deferred_heap` is a superset of [region-based memory management](https://en.wikipedia.org/wiki/Region-based_memory_management).
+
+The key idea of a region is to efficiently deallocate the region's memory all at once when the region is destroyed. `deferred_heap` does that. But it extends the region concept in three ways:
+
+- It adds  optional **`.collect()`** to reclaim unused parts of the region without waiting for the whole region to be destroyed. If you don't call `.collect()`, then when the heap is destroyed the heap's memory is released all at once, exactly like a region.
+
+- It owns **objects**, not just raw memory, and always correctly destroys any pending destructors for objects that are still in the heap when it is destroyed (or, if `.collect()` is called, that are unreachable). If you don't allocate any non-trivially destructible objects, then when the heap is destroyed no additional destructors need to be performed before the memory is released.
+
+- It knows its **roots**, and safely resets any outstanding `deferred_ptr`s that outlive the heap they point into. If you don't let any `deferred_ptr`s outlive the heap they point into, then when the heap is destroyed no additional nulling needs to be performed.
+
+So if you use a `deferred_heap` and never call `.collect()`, allocate a nontrivially destructible object, or let a `deferred_ptr` outlive the heap, then destroying the heap does exactly nothing beyond efficiently dropping any memory it owns, just like a region. But, unlike a region, you can do any of those things, and they are safe.
+
+
+## Q: "Isn't this tracing garbage collection (GC)?"
+
+No, not the way people know tracing GC. Most commercial tracing GC is about *managing raw memory*, and tearing down the real objects that live in that memory is at best a brittle afterthought not designed as an integrated part of the language runtime. (See the restrictions on "finalizers" in Java, C#, Go, etc. -- all the major GC-based languages I know of that have more than 10 years' field experience with finalizers now recommend avoiding finalizers outright.)
+
+`deferred_heap` is about *managing objects*, and is primarily concerned with deferring real destructors. It does perform liveness tracing, but differs from most major tracing GC designs in two ways, both of which come back to objects and destructors:
+
+- **It doesn't collect "garbage."** It collects real objects and runs their real destructors.
+
+
+
 # Implementation notes
 
 ## deferred_heap and deferred_ptr
@@ -101,8 +139,6 @@ The following summarizes the best practices we should already teach for expressi
 - `collect()` is local: It traces only `deferred_heap`-allocated objects, and only this `deferred_heap`.
 
 - `collect()` is explicit: It runs only when called, under program control.
-
-    - If you never call `collect()`, a `deferred_heap` behaves like a [region](https://en.wikipedia.org/wiki/Region-based_memory_management) that deallocates all memory efficiently at once. Unlike most regions which just let go of the memory, it will first  run any pending destructors and only then efficiently just let go of the memory.
 
 - `make<T>()` allocates and constructs a new `T` object and returns a `deferred_ptr<T>`.
 

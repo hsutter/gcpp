@@ -150,13 +150,10 @@ void test_deferred_heap() {
 	};
 	auto pt = heap.make<Test>();
 	cout << "pt [" << (void*)pt.get() << "]\n";
-	deferred_ptr<int> pi{ pt, pt->i };
+	auto pi = pt.make_alias(&Test::i);
 	cout << "pi [" << (void*)pi.get() << "] is " << *pi << "\n";
-	deferred_ptr<double> pd{ pt, pt->d };
+	auto pd = pt.make_alias(&Test::d);
 	cout << "pd [" << (void*)pd.get() << "] is " << *pd << "\n";
-	
-	double d = 666.666;
-	// deferred_ptr<double> pd2{ pt, d };	// this line is UB, will assert in debug mode
 }
 
 
