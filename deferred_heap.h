@@ -812,7 +812,7 @@ namespace gcpp {
 		if (p.second == nullptr) {
 			//	pass along the type hint for size/alignment
 			pages.emplace_back((T*)nullptr, n, this);
-			p.first = &pages.back();	// TODO just use emplace_back's return in a C++17 STL
+			p.first = &pages.back();	// TODO just use emplace_back's return value, in a C++17 STL
 			p = { p.first, p.first->page.allocate<T>(n) };
 		}
 
