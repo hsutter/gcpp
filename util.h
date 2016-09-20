@@ -30,11 +30,12 @@ bool operator<=(const Type& that) const { return compare3(that) <= 0; } \
 bool operator> (const Type& that) const { return compare3(that) >  0; } \
 bool operator>=(const Type& that) const { return compare3(that) >= 0; }
 
-#include <cstdint>
+#include <gsl/gsl>
+#include <cstdint> // TODO unnecessary?
 
 namespace gcpp {
 
-	using byte = std::uint8_t;
+	using byte = gsl::byte;
 
 }
 

@@ -449,8 +449,8 @@ namespace gcpp {
 		template<class T> using id_t = typename id<T>::type;	// type deduction for TT 
 
 		template<class U, class TT = T>
-		deferred_ptr<U> make_alias(U id_t<TT>::*pU) {
-			assert(get_page() && get() && "can't make_alias on a null pointer");
+		deferred_ptr<U> ptr_to(U id_t<TT>::*pU) {
+			assert(get_page() && get() && "can't ptr_to on a null pointer");
 			return{ get_page(), &(get()->*pU) };
 		}
 
@@ -1065,7 +1065,7 @@ namespace gcpp {
 	inline
 	void deferred_heap::debug_print() const 
 	{
-		std::cout << "\n*** heap snapshot [" << (void*)this << "] ***********************************************\n\n";
+		std::cout << "\n*** heap snapshot [" << (void*)this << "] ************************************************\n\n";
 		for (auto& pg : pages) {
 			pg.page.debug_print();
 			std::cout << "\n  this page's deferred_ptrs.size() is " << pg.deferred_ptrs.size() << "\n";

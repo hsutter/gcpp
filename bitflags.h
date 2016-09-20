@@ -36,7 +36,7 @@ namespace gcpp {
 	class bitflags {
 		const std::size_t size;
 		std::vector<byte> bits;
-		static constexpr byte ALL_TRUE = 0xFF, ALL_FALSE = 0x00;
+		static constexpr byte ALL_TRUE = byte(0xFF), ALL_FALSE = byte(0x00);
 
 	public:
 		bitflags(std::size_t bits, bool value)
@@ -48,7 +48,7 @@ namespace gcpp {
 		//
 		bool get(int at) const {
 			assert(0 <= at && at < size && "bitflags get() out of range");
-			return (bits[at / sizeof(byte)] & (1 << (at % sizeof(byte)))) > 0;
+			return (bits[at / sizeof(byte)] & byte(1 << (at % sizeof(byte)))) > byte(0);
 		}
 
 		//	Set flag value at position
@@ -56,10 +56,10 @@ namespace gcpp {
 		void set(int at, bool value) {
 			assert(0 <= at && at < size && "bitflags set() out of range");
 			if (value) {
-				bits[at / sizeof(byte)] |= (1 << (at % sizeof(byte)));
+				bits[at / sizeof(byte)] |= byte(1 << (at % sizeof(byte)));
 			}
 			else {
-				bits[at / sizeof(byte)] &= (0xff ^ (1 << (at % sizeof(byte))));
+				bits[at / sizeof(byte)] &= byte(0xff ^ (1 << (at % sizeof(byte))));
 			}
 		}
 
@@ -79,7 +79,7 @@ namespace gcpp {
 
 			// then set whole bytes (makes a significant performance difference)
 			while (from < to && to - from >= sizeof(byte)) {
-				bits[from / sizeof(byte)] = value ? 0xFF : 0x00;
+				bits[from / sizeof(byte)] = value ? byte(0xFF) : byte(0x00);
 				from += sizeof(byte);
 			}
 

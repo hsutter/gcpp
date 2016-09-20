@@ -150,9 +150,9 @@ void test_deferred_heap() {
 	};
 	auto pt = heap.make<Test>();
 	cout << "pt [" << (void*)pt.get() << "]\n";
-	auto pi = pt.make_alias(&Test::i);
+	auto pi = pt.ptr_to(&Test::i);
 	cout << "pi [" << (void*)pi.get() << "] is " << *pi << "\n";
-	auto pd = pt.make_alias(&Test::d);
+	auto pd = pt.ptr_to(&Test::d);
 	cout << "pd [" << (void*)pd.get() << "] is " << *pd << "\n";
 }
 
@@ -387,12 +387,12 @@ void test_deferred_array() {
 int main() {
 	//test_page();
 
-	test_deferred_heap();
+	//test_deferred_heap();
 	//time_deferred_heap();
 
 	//test_deferred_allocator();
 
-	//test_deferred_allocator_set();
+	test_deferred_allocator_set();
 	//time_deferred_allocator_set();
 
 	//test_deferred_allocator_vector();
