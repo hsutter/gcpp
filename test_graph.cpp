@@ -34,7 +34,7 @@ public:
 		}
 		void RemoveChild(const shared_ptr<Node>& node) {
 			auto it = find(children.begin(), children.end(), node);
-			assert(it != children.end() && "trying to remove a child that was never added");
+			Expects(it != children.end() && "trying to remove a child that was never added");
 			children.erase(it);
 		}
 	};
@@ -67,7 +67,7 @@ public:
 		}
 		void RemoveChild(const deferred_ptr<Node>& node) {
 			auto it = find(children.begin(), children.end(), node);
-			assert(it != children.end() && "trying to remove a child that was never added");
+			Expects(it != children.end() && "trying to remove a child that was never added");
 			//children.erase(it);
 			*it = nullptr;
 		}

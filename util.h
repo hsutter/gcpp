@@ -19,9 +19,21 @@
 #ifndef GCPP_UTIL
 #define GCPP_UTIL
 
-#define _ITERATOR_DEBUG_LEVEL 0
+//	This project requires GSL, see: https://github.com/microsoft/gsl
+#include <gsl/gsl>
 
-// this is the right way to do totally ordered comparisons; TODO propose again in ISO
+namespace gcpp {
+
+	using byte = gsl::byte;
+
+}
+
+#ifdef _MSC_VER
+//	This project is not currently compatible with MSVC's STL's iterator proxies.
+#define _ITERATOR_DEBUG_LEVEL 0
+#endif
+
+//	This is the right way to do totally ordered comparisons; TODO propose again in ISO
 #define GCPP_TOTALLY_ORDERED_COMPARISON(Type) \
 bool operator==(const Type& that) const { return compare3(that) == 0; } \
 bool operator!=(const Type& that) const { return compare3(that) != 0; } \
@@ -29,14 +41,5 @@ bool operator< (const Type& that) const { return compare3(that) <  0; } \
 bool operator<=(const Type& that) const { return compare3(that) <= 0; } \
 bool operator> (const Type& that) const { return compare3(that) >  0; } \
 bool operator>=(const Type& that) const { return compare3(that) >= 0; }
-
-#include <gsl/gsl>
-#include <cstdint> // TODO unnecessary?
-
-namespace gcpp {
-
-	using byte = gsl::byte;
-
-}
 
 #endif

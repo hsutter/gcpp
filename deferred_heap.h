@@ -39,8 +39,8 @@ namespace gcpp {
 	class destructors {
 		struct destructor {
 			const byte* p;
+			int         n;
 			std::size_t size;
-			std::size_t n;
 			void(*destroy)(const void*);
 		};
 		std::vector<destructor>	dtors;
@@ -48,34 +48,36 @@ namespace gcpp {
 	public:
 		//	Store the destructor, if it's not trivial
 		//
+		//	Note: If not_null<span<T>> becomes supported, we can switch to that
+		//
 		template<class T>
-		void store(T* p, std::size_t num = 1) {
-			assert(p != nullptr && num > 0
+		void store(gsl::span<T> p) {
+			Expects(p.size() > 0
 				&& "no object to register for destruction");
 			if (!std::is_trivially_destructible<T>::value) {
 				dtors.push_back({
-					(byte*)p,								// address p
+					as_bytes(p).data(),						// address p
+					p.size(),
 					sizeof(T),
-					num,
-					[](const void* x) { ((T*)x)->~T(); }	// dtor to invoke with p
-				});
+					[](const void* x) { reinterpret_cast<const T*>(x)->~T(); }
+				});											// dtor to invoke
 			}
 		}
 
 		//	Inquire whether there is a destructor registered for p
 		//
 		template<class T>
-		bool is_stored(T* p) noexcept {
+		bool is_stored(gsl::not_null<T*> p) noexcept {
 			return std::is_trivially_destructible<T>::value
 				|| std::find_if(dtors.begin(), dtors.end(), 
-					[=](auto x) { return x.p == (byte*)p; }) != dtors.end();
+					[=](auto x) { return x.p == (byte*)p.get(); }) != dtors.end();
 		}
 
 		//	Run all the destructors and clear the list
 		//
 		void run_all() {
 			for (auto& d : dtors) {
-				for (std::size_t i = 0; i < d.n; ++i) {
+				for (auto i = 0; i < d.n; ++i) {
 					d.destroy(d.p + d.size*i);	// call object's destructor
 				}
 			}
@@ -84,8 +86,8 @@ namespace gcpp {
 
 		//	Runn all the destructors for objects in [begin,end)
 		//
-		bool run(byte* begin, byte* end) {
-			assert(begin < end && "begin must precede end");
+		bool run(gsl::not_null<byte*> begin, gsl::not_null<byte*> end) {
+			Expects(begin < end && "begin must precede end");
 			bool ret = false;
 
 			//	for reentrancy safety, we'll take a local copy of destructors to be run
@@ -107,7 +109,7 @@ namespace gcpp {
 			//	... then, execute them now that we're done using private state
 			//
 			for (auto& d : to_destroy) {
-				for (std::size_t i = 0; i < d.n; ++i) {
+				for (auto i = 0; i < d.n; ++i) {
 					//	=====================================================================
 					//  === BEGIN REENTRANCY-SAFE: ensure no in-progress use of private state
 					d.destroy(d.p + d.size*i);	// call object's destructor
@@ -168,8 +170,8 @@ namespace gcpp {
 		struct dhpage;
 
 		class deferred_ptr_void {
-			void* p;
 			dhpage* mypage;
+			void* p;
 
 			friend deferred_heap;
 
@@ -181,7 +183,7 @@ namespace gcpp {
 				, p{ p_ }
 			{
 				//	Allow null pointers, we'll set the page on the first assignment
-				assert((p == nullptr || mypage != nullptr) && "page cannot be null for a non-null pointer");
+				Expects((p == nullptr || mypage != nullptr) && "page cannot be null for a non-null pointer");
 				if (mypage != nullptr) {
 					mypage->myheap->enregister(*this);
 				}
@@ -200,16 +202,13 @@ namespace gcpp {
 			deferred_ptr_void& operator=(const deferred_ptr_void& that) noexcept {
 				//	Allow assignment from an unattached null pointer
 				if (that.mypage == nullptr) {
-					assert(that.p == nullptr && "unattached deferred_ptr must be null");
+					Expects(that.p == nullptr && "unattached deferred_ptr must be null");
 					reset();	// just to keep the nulling logic in one place
 				}
 
 				//	Otherwise, we must be unattached or pointing into the same heap
 				else {
-					//	We could make this a run-time error and throw an exception,
-					//	but I generally prefer asserts for things that are bugs in
-					//	the caller's code -- no check in release, but will fire in test
-					assert((mypage == nullptr || mypage->myheap == that.mypage->myheap)
+					Expects((mypage == nullptr || mypage->myheap == that.mypage->myheap)
 						&& "cannot assign deferred_ptrs into different deferred_heaps");
 					p = that.p;
 					if (mypage == nullptr) {
@@ -260,9 +259,9 @@ namespace gcpp {
 			deferred_heap*		 myheap;
 
 			//	Construct a page tuned to hold Hint objects, big enough for
-			//	at least 1 + phi ~= 2.62 of these requests (but at least 64K),
+			//	at least 1 + phi ~= 2.62 of these requests (but at least 8K),
 			//	and a tracking min_alloc chunk sizeof(request) (but at least 4 bytes).
-			//	Note: Hint used only to deduce size/alignment.
+			//	Note: Hint used only to deduce total size and tracking granularity.
 			//	TODO: don't allocate objects on pages with chunk sizes > 2 * object size
 			//
 			template<class Hint>
@@ -305,7 +304,7 @@ namespace gcpp {
 		deferred_ptr<T> make(Args&&... args) {
 			auto p = allocate<T>();
 			if (p != nullptr) {
-				construct(p.get(), std::forward<Args>(args)...);
+				construct<T>(p.get(), std::forward<Args>(args)...);
 			}
 			return p;
 		}
@@ -320,7 +319,7 @@ namespace gcpp {
 		deferred_ptr<T> make_array(std::size_t n) {
 			auto p = allocate<T>(n);
 			if (p != nullptr) {
-				construct_array(p.get(), n);
+				construct_array<T>(p.get(), n);
 			}
 			return p;
 		}
@@ -347,27 +346,27 @@ namespace gcpp {
 		find_dhpage_info_ret find_dhpage_info(T* p) noexcept;
 
 		template<class T>
-		std::pair<dhpage*, T*> allocate_from_existing_pages(std::size_t n);
-			
+		std::pair<dhpage*, byte*> allocate_from_existing_pages(std::size_t n);
+
 		template<class T>
 		deferred_ptr<T> allocate(std::size_t n = 1);
 
 		template<class T, class ...Args> 
-		void construct(T* p, Args&& ...args);
+		void construct(gsl::not_null<T*> p, Args&& ...args);
 
 		template<class T> 
-		void construct_array(T* p, std::size_t n);
+		void construct_array(gsl::not_null<T*> p, std::size_t n);
 
 		template<class T> 
-		void destroy(T* p) noexcept;
+		void destroy(gsl::not_null<T*> p) noexcept;
 		
-		bool destroy_objects(byte* start, byte* end);
+		bool destroy_objects(gsl::not_null<byte*> start, gsl::not_null<byte*> end);
 
 		//------------------------------------------------------------------------
 		//
 		//	collect, et al.: Sweep the deferred heap
 		//
-		void mark(const void* p, std::size_t level) noexcept;
+		void mark(const deferred_ptr_void& p, std::size_t level) noexcept;
 
 	public:
 		void collect();
@@ -450,7 +449,7 @@ namespace gcpp {
 
 		template<class U, class TT = T>
 		deferred_ptr<U> ptr_to(U id_t<TT>::*pU) {
-			assert(get_page() && get() && "can't ptr_to on a null pointer");
+			Expects(get_page() && get() && "can't ptr_to on a null pointer");
 			return{ get_page(), &(get()->*pU) };
 		}
 
@@ -461,17 +460,17 @@ namespace gcpp {
 		}
 
 		T& operator*() const noexcept {
-			//	This assertion is currently disabled because MSVC's std::vector
+			//	This contract is currently disabled because MSVC's std::vector
 			//	implementation relies on being able to innocuously dereference
 			//	any pointer (even null) briefly just to take the pointee's
 			//	address again, to un-fancy "fancy" pointers like this one
 			//	(The next VS "15" Preview has a fix & we can re-enable this.)
-			//assert(get() && "attempt to dereference null");
+			//Expects(get() && "attempt to dereference null");
 			return *get();
 		}
 
 		T* operator->() const noexcept {
-			assert(get() && "attempt to dereference null");
+			Expects(get() && "attempt to dereference null");
 			return get();
 		}
 
@@ -488,24 +487,24 @@ namespace gcpp {
 		//
 		deferred_ptr& operator+=(int offset) noexcept {
 #ifndef NDEBUG
-			assert(get() != nullptr
+			Expects(get() != nullptr
 				&& "bad deferred_ptr arithmetic: can't perform arithmetic on a null pointer");
 
 			auto this_info = get_heap()->find_dhpage_info(get());
 
-			assert(this_info.page != nullptr
+			Expects(this_info.page != nullptr
 				&& "corrupt non-null deferred_ptr, not pointing into deferred heap");
 
-			assert(this_info.info.found > gpage::in_range_unallocated
+			Expects(this_info.info.found > gpage::in_range_unallocated
 				&& "corrupt non-null deferred_ptr, pointing to unallocated memory");
 
 			auto temp = get() + offset;
 			auto temp_info = get_heap()->find_dhpage_info(temp);
 
-			assert(this_info.page == temp_info.page
+			Expects(this_info.page == temp_info.page
 				&& "bad deferred_ptr arithmetic: attempt to leave dhpage");
 
-			assert(
+			Expects(
 				//	if this points to the start of an allocation, it's always legal
 				//	to form a pointer to the following element (just don't deref it)
 				//	which covers one-past-the-end of single-element allocations
@@ -570,23 +569,23 @@ namespace gcpp {
 				return 0;
 			}
 
-			assert(get() != nullptr && that.get() != nullptr
+			Expects(get() != nullptr && that.get() != nullptr
 				&& "bad deferred_ptr arithmetic: can't subtract pointers when one is null");
 
 			auto this_info = get_heap()->find_dhpage_info(get());
 			auto that_info = get_heap()->find_dhpage_info(that.get());
 
-			assert(this_info.page != nullptr
+			Expects(this_info.page != nullptr
 				&& that_info.page != nullptr
 				&& "corrupt non-null deferred_ptr, not pointing into deferred heap");
 
-			assert(that_info.info.found > gpage::in_range_unallocated
+			Expects(that_info.info.found > gpage::in_range_unallocated
 				&& "corrupt non-null deferred_ptr, pointing to unallocated space");
 
-			assert(that_info.page == this_info.page
+			Expects(that_info.page == this_info.page
 				&& "bad deferred_ptr arithmetic: attempt to leave dhpage");
 
-			assert(
+			Expects(
 				//	if that points to the start of an allocation, it's always legal
 				//	to form a pointer to the following element (just don't deref it)
 				//	which covers one-past-the-end of single-element allocations
@@ -675,7 +674,7 @@ namespace gcpp {
 		}
 
 		void* operator->() const noexcept {
-			assert(get() && "attempt to dereference null"); 
+			Expects(get() && "attempt to dereference null"); 
 			return get(); 
 		}
 	};
@@ -717,7 +716,7 @@ namespace gcpp {
 	inline
 	void deferred_heap::enregister(const deferred_ptr_void& p) {
 		//	append it to the back of the appropriate list
-		assert(!is_destroying 
+		Expects(!is_destroying 
 			&& "cannot allocate new objects on a deferred_heap that is being destroyed");
 		auto pg = find_dhpage_of(&p);
 		if (pg != nullptr) 
@@ -744,7 +743,7 @@ namespace gcpp {
 		//	and especially temporary deferred_ptrs)
 		//
 		auto erased_count = roots.erase(&p);
-		assert(erased_count < 2 && "duplicate registration");
+		Expects(erased_count < 2 && "duplicate registration");
 		if (erased_count > 0)
 			return;
 
@@ -758,7 +757,7 @@ namespace gcpp {
 			}
 		}
 
-		assert(!"attempt to deregister an unregistered deferred_ptr");
+		Expects(!"attempt to deregister an unregistered deferred_ptr");
 	}
 
 	//  Return the dhpage on which this object exists.
@@ -766,9 +765,11 @@ namespace gcpp {
 	//
 	template<class T>
 	deferred_heap::dhpage* deferred_heap::find_dhpage_of(T* p) noexcept {
-		for (auto& pg : pages) {
-			if (pg.page.contains(p))
-				return &pg;
+		if (p != nullptr) {
+			for (auto& pg : pages) {
+				if (pg.page.contains((byte*)p))
+					return &pg;
+			}
 		}
 		return nullptr;
 	}
@@ -777,7 +778,7 @@ namespace gcpp {
 	deferred_heap::find_dhpage_info_ret deferred_heap::find_dhpage_info(T* p)  noexcept {
 		find_dhpage_info_ret ret;
 		for (auto& pg : pages) {
-			auto info = pg.page.contains_info(p);
+			auto info = pg.page.contains_info((byte*)p);
 			if (info.found != gpage::not_in_range) {
 				ret.page = &pg;
 				ret.info = info;
@@ -787,7 +788,8 @@ namespace gcpp {
 	}
 
 	template<class T>
-	std::pair<deferred_heap::dhpage*, T*> deferred_heap::allocate_from_existing_pages(std::size_t n) {
+	std::pair<deferred_heap::dhpage*, byte*> 
+	deferred_heap::allocate_from_existing_pages(std::size_t n) {
 		for (auto& pg : pages) {
 			auto p = pg.page.allocate<T>(n);
 			if (p != nullptr)
@@ -816,18 +818,16 @@ namespace gcpp {
 			p = { p.first, p.first->page.allocate<T>(n) };
 		}
 
-		assert(p.second != nullptr && "failed to allocate but didn't throw an exception");
-		return{ p.first, p.second };
+		Expects(p.second != nullptr && "failed to allocate but didn't throw an exception");
+		return{ p.first, reinterpret_cast<T*>(p.second) };
 	}
 
 	template<class T, class ...Args>
-	void deferred_heap::construct(T* p, Args&& ...args) 
+	void deferred_heap::construct(gsl::not_null<T*> p, Args&& ...args)
 	{
-		assert(p != nullptr && "construction at null location");
-
 		//	if there are objects with deferred destructors in this
 		//	region, run those first and remove them
-		destroy_objects((byte*)p, (byte*)(p + 1));
+		destroy_objects((byte*)p.get(), (byte*)(p.get() + 1));
 
 		//	construct the object...
 
@@ -838,17 +838,15 @@ namespace gcpp {
 		//	=====================================================================
 
 		//	... and store the destructor
-		dtors.store(p);
+		dtors.store(gsl::span<T>(p, 1));
 	}
 
 	template<class T>
-	void deferred_heap::construct_array(T* p, std::size_t n) 
+	void deferred_heap::construct_array(gsl::not_null<T*> p, std::size_t n)
 	{
-		assert(p != nullptr && "construction at null location");
-
 		//	if there are objects with deferred destructors in this
 		//	region, run those first and remove them
-		destroy_objects((byte*)p, (byte*)(p + n));
+		destroy_objects((byte*)p.get(), (byte*)(p.get() + n));
 
 		//	construct all the objects...
 
@@ -861,18 +859,18 @@ namespace gcpp {
 		}
 
 		//	... and store the destructor
-		dtors.store(p, n);
+		dtors.store(gsl::span<T>(p, n));
 	}
 
 	template<class T>
-	void deferred_heap::destroy(T* p) noexcept 
+	void deferred_heap::destroy(gsl::not_null<T*> p) noexcept
 	{
-		assert((p == nullptr || dtors.is_stored(p))
+		Expects((p == nullptr || dtors.is_stored(p))
 			&& "attempt to destroy an object whose destructor is not registered");
 	}
 
 	inline
-	bool deferred_heap::destroy_objects(byte* start, byte* end) {
+	bool deferred_heap::destroy_objects(gsl::not_null<byte*> start, gsl::not_null<byte*> end) {
 		return dtors.run(start, end);
 	}
 
@@ -881,16 +879,16 @@ namespace gcpp {
 	//	collect, et al.: Sweep the deferred heap
 	//
 	inline
-	void deferred_heap::mark(const void* p, std::size_t level) noexcept
+	void deferred_heap::mark(const deferred_ptr_void& p, std::size_t level) noexcept
 	{
 		// if it isn't null ...
-		if (p == nullptr)
+		if (p.get() == nullptr)
 			return;
 
-// TODO -- better replacement for rest of this function
+	// TODO -- better replacement for rest of this function
 		////	... find which page it points into ...
 		//auto where = find_dhpage_info(&p);
-		//assert(where.page != nullptr
+		//Expects(where.page != nullptr
 		//	&& "must not mark a location that's not in our heap");
 
 		//// ... mark the chunk as live ...
@@ -910,8 +908,8 @@ namespace gcpp {
 
 		// ... find which page it points into ...
 		for (auto& pg : pages) {
-			auto where = pg.page.contains_info((byte*)p);
-			assert(where.found != gpage::in_range_unallocated
+			auto where = pg.page.contains_info((byte*)p.get());
+			Expects(where.found != gpage::in_range_unallocated
 				&& "must not point to unallocated memory");
 			if (where.found != gpage::not_in_range) {
 				// ... and mark the chunk as live ...
@@ -920,7 +918,7 @@ namespace gcpp {
 				// ... and mark any deferred_ptrs in the allocation as reachable
 				for (auto& dp : pg.deferred_ptrs) {
 					auto dp_where = pg.page.contains_info((byte*)dp.p);
-					assert((dp_where.found == gpage::in_range_allocated_middle
+					Expects((dp_where.found == gpage::in_range_allocated_middle
 						|| dp_where.found == gpage::in_range_allocated_start)
 						&& "points to unallocated memory");
 					if (dp_where.start_location == where.start_location
@@ -949,7 +947,7 @@ namespace gcpp {
 		//
 		std::size_t level = 1;
 		for (auto& p : roots) {
-			mark(p->get(), level);	// mark this deferred_ptr root
+			mark(*p, level);	// mark this deferred_ptr root
 		}
 
 		bool done = false;
@@ -960,24 +958,11 @@ namespace gcpp {
 				for (auto& dp : pg.deferred_ptrs) {
 					if (dp.level == level - 1) {
 						done = false;
-						mark(dp.p->get(), level);	// mark this reachable in-arena deferred_ptr
+						mark(*(dp.p), level);	// mark this reachable in-arena deferred_ptr
 					}
 				}
 			}
 		}
-
-#ifndef NDEBUG
-		//std::cout << "=== COLLECT live_starts locations:\n     ";
-		//for (auto& pg : pages) {
-		//	for (std::size_t i = 0; i < pg.page.locations(); ++i) {
-		//		std::cout << (pg.live_starts.get(i) ? 'A' : '.');
-		//		if (i % 8 == 7) { std::cout << ' '; }
-		//		if (i % 64 == 63) { std::cout << "\n     "; }
-		//	}
-		//	std::cout << "\n     ";
-		//}
-		//std::cout << "\n";
-#endif
 
 		//	We have now marked every allocation to save, so now
 		//	go through and clean up all the unreachable objects

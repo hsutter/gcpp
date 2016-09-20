@@ -23,7 +23,6 @@
 
 #include <vector>
 #include <algorithm>
-#include <cassert>
 #include <memory>
 
 //#ifndef NDEBUG
@@ -74,12 +73,11 @@ namespace gcpp {
 		//  Allocate space for num objects of type T
 		//
 		template<class T>
-		T* allocate(std::size_t num = 1) noexcept;
+		byte* allocate(std::size_t num = 1) noexcept;
 
 		//  Return whether p points into this page's storage and is allocated.
 		//
-		template<class T>
-		bool contains(T* p) const noexcept;
+		bool contains(gsl::not_null<const byte*> p) const noexcept;
 
 		enum gpage_find_result {
 			not_in_range = 0,
@@ -91,11 +89,9 @@ namespace gcpp {
 			gpage_find_result found;
 			std::size_t		  location;
 			std::size_t		  start_location;
-			//std::size_t		  end_location;	// one past the end
 		};
-		template<class T>
 		contains_info_ret 
-		contains_info(T* p) const noexcept;
+		contains_info(gsl::not_null<const byte*> p) const noexcept;
 
 		//  Return whether there is an allocation starting at this location.
 		//
@@ -104,12 +100,11 @@ namespace gcpp {
 			byte* pointer;
 		};
 		location_info_ret
-		location_info(std::size_t where) const noexcept;
+		location_info(int where) const noexcept;
 
-		//  Deallocate space for object(s) of type T
+		//  Deallocate space pointed to by p (must be to the start of an allocation)
 		//
-		template<class T>
-		void deallocate(T* p) noexcept;
+		void deallocate(gsl::not_null<byte*> p) noexcept;
 
 		//	Debugging support
 		//
@@ -138,7 +133,7 @@ namespace gcpp {
 		, inuse(total_size, false)
 		, starts(total_size, false)
 	{
-		assert(total_size % min_alloc == 0 &&
+		Expects(total_size % min_alloc == 0 &&
 			"total_size must be a multiple of min_alloc");
 	}
 
@@ -146,7 +141,7 @@ namespace gcpp {
 	//  Allocate space for num objects of type T
 	//
 	template<class T>
-	T* gpage::allocate(std::size_t num) noexcept {
+	byte* gpage::allocate(std::size_t num) noexcept {
 		const auto bytes_needed = sizeof(T)*num;
 
 		//	optimization: if we know we don't have room, don't even scan
@@ -176,11 +171,11 @@ namespace gcpp {
 
 		//	for each correctly aligned location candidate
 		std::size_t i = ((byte*)aligned_start - &storage[0]) / min_alloc;
-		assert(i == 0 && "temporary debug check: the current test harness shouldn't have generated something that required a starting offset for alignment reasons");
+		Expects(i == 0 && "temporary debug check: the current test harness shouldn't have generated something that required a starting offset for alignment reasons");
 		for (; i < end; i += locations_step) {
 			//	check to see whether we have enough free locations starting here
 			std::size_t j = 0;
-			//	TODO replace with std::find_if
+			//	TODO replace this loop with a function call
 			for (; j < locations_needed; ++j) {
 				// if any location is in use, keep going
 				if (inuse.get(i + j)) {
@@ -210,44 +205,35 @@ namespace gcpp {
 		current_known_request_bound -= min_alloc * locations_needed;
 
 		//	... and return the storage
-		return reinterpret_cast<T*>(&storage[i*min_alloc]);
+		return &storage[i*min_alloc];
 	}
 
 
 	//  Return whether p points into this page's storage and is allocated.
 	//
-	template<class T>
-	bool gpage::contains(T* p) const noexcept {
-		auto pp = reinterpret_cast<const byte*>(p);
-		return (&storage[0] <= pp && pp < &storage[total_size - 1]);
+	inline
+	bool gpage::contains(gsl::not_null<const byte*> p) const noexcept {
+		return &storage[0] <= p && p < &storage[total_size - 1];
 	}
 
-	template<class T>
-	gpage::contains_info_ret gpage::contains_info(T* p) const noexcept {
-		auto pp = reinterpret_cast<const byte*>(p);
-		if (!(&storage[0] <= pp && pp < &storage[total_size - 1])) {
+	inline
+	gpage::contains_info_ret gpage::contains_info(gsl::not_null<const byte*> p) const noexcept {
+		if (!(&storage[0] <= p && p < &storage[total_size - 1])) {
 			return{ not_in_range, 0, 0 };
 		}
 
-		auto where = (pp - &storage[0]) / min_alloc;
+		auto where = (p - &storage[0]) / min_alloc;
 		if (!inuse.get(where)) {
 			return{ in_range_unallocated, where, 0 };
 		}
 
-		//	find the end of this allocation
-		//	TODO replace with find_if, possibly
-		//auto end = where + 1;
-		//while (end < MAX && !starts.get(end) && inuse.get(end)) {
-		//	++end;
-		//}
-
 		if (!starts.get(where))	{
 			auto start = where;
-			//	TODO replace with find_if, possibly
+			//	TODO replace this loop with a function call
 			while (start > 0 && !starts.get(start - 1)) {
 				--start;
 			}
-			assert(start > 0 && "there was no start to this allocation");
+			Expects(start > 0 && "there was no start to this allocation");
 			return{ in_range_allocated_middle, where, start - 1 };
 		}
 
@@ -259,24 +245,22 @@ namespace gcpp {
 	//
 	inline 
 	gpage::location_info_ret
-	gpage::location_info(std::size_t where) const noexcept {
+	gpage::location_info(int where) const noexcept {
 		return{ starts.get(where), &storage[where*min_alloc] };
 	}
 
 
 	//  Deallocate space for object(s) of type T
 	//
-	template<class T>
-	void gpage::deallocate(T* p) noexcept {
-		if (p == nullptr) return;
-
-		auto here = (reinterpret_cast<byte*>(p) - &storage[0]) / min_alloc;
+	inline
+	void gpage::deallocate(gsl::not_null<byte*> p) noexcept {
+		auto here = (p - &storage[0]) / min_alloc;
 
 		// p had better point to our storage and to the start of an allocation
 		// (note: we could also check alignment here but that seems superfluous)
-		assert(0 <= here && here < locations() && "attempt to deallocate - out of range");
-		assert(starts.get(here) && "attempt to deallocate - not at start of a valid allocation");
-		assert(inuse.get(here) && "attempt to deallocate - location is not in use");
+		Expects(0 <= here && here < locations() && "attempt to deallocate - out of range");
+		Expects(starts.get(here) && "attempt to deallocate - not at start of a valid allocation");
+		Expects(inuse.get(here) && "attempt to deallocate - location is not in use");
 
 		// reset 'starts' to erase the record of the start of this allocation
 		starts.set(here, false);
@@ -310,7 +294,7 @@ namespace gcpp {
 	//
 	inline
 	std::string lowest_hex_digits_of_address(byte* p, int num = 1) {
-		assert(0 < num && num < 9 && "number of digits must be 0..8");
+		Expects(0 < num && num < 9 && "number of digits must be 0..8");
 		static const char digits[] = "0123456789ABCDEF";
 
 		std::string ret(num, ' ');
@@ -328,18 +312,18 @@ namespace gcpp {
 		std::cout << "--- total_size " << total_size << " --- min_alloc " << min_alloc
 			<< " --- " << (void*)base << " ---------------------------\n     ";
 
-		for (std::size_t i = 0; i < 64; i += 2) {
+		for (auto i = 0; i < 64; i += 2) {
 			std::cout << lowest_hex_digits_of_address(base + i*min_alloc,2)[0] << ' ';
 			if (i % 8 == 6) { std::cout << ' '; }
 		}
 		std::cout << "\n     ";
-		for (std::size_t i = 0; i < 64; i += 2) {
+		for (auto i = 0; i < 64; i += 2) {
 			std::cout << lowest_hex_digits_of_address(base + i*min_alloc) << ' ';
 			if (i % 8 == 6) { std::cout << ' '; }
 		}
 		std::cout << '\n';
 
-		for (std::size_t i = 0; i < locations(); ++i) {
+		for (auto i = 0; i < locations(); ++i) {
 			if (i % 64 == 0) { std::cout << lowest_hex_digits_of_address(base + i*min_alloc, 4) << ' '; }
 			std::cout << (starts.get(i) ? 'A' : inuse.get(i) ? 'a' : '.');
 			if (i % 8 == 7) { std::cout << ' '; }

@@ -23,7 +23,6 @@
 
 #include <vector>
 #include <algorithm>
-#include <cassert>
 
 namespace gcpp {
 
@@ -34,27 +33,30 @@ namespace gcpp {
 	//----------------------------------------------------------------------------
 
 	class bitflags {
-		const std::size_t size;
-		std::vector<byte> bits;
 		static constexpr byte ALL_TRUE = byte(0xFF), ALL_FALSE = byte(0x00);
 
+		const int size;
+		std::vector<byte> bits;
+
 	public:
-		bitflags(std::size_t bits, bool value)
+		bitflags(int bits, bool value)
 			: size{ bits }
 			, bits(1 + size / sizeof(byte), value ? ALL_TRUE : ALL_FALSE)
-		{ }
+		{ 
+			Expects(bits > 0 && "#bits must be positive");
+		}
 
 		//	Get flag value at position
 		//
 		bool get(int at) const {
-			assert(0 <= at && at < size && "bitflags get() out of range");
+			Expects(0 <= at && at < size && "bitflags get() out of range");
 			return (bits[at / sizeof(byte)] & byte(1 << (at % sizeof(byte)))) > byte(0);
 		}
 
 		//	Set flag value at position
 		//
 		void set(int at, bool value) {
-			assert(0 <= at && at < size && "bitflags set() out of range");
+			Expects(0 <= at && at < size && "bitflags set() out of range");
 			if (value) {
 				bits[at / sizeof(byte)] |= byte(1 << (at % sizeof(byte)));
 			}
