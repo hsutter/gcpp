@@ -39,8 +39,6 @@ namespace gcpp {
 	class destructors {
 		struct destructor {
 			const byte* p;
-			int         n;
-			std::size_t size;
 			void(*destroy)(const void*);
 		};
 		std::vector<destructor>	dtors;
@@ -53,12 +51,20 @@ namespace gcpp {
 			Expects(p.size() > 0
 				&& "no object to register for destruction");
 			if (!std::is_trivially_destructible<T>::value) {
-				dtors.push_back({
-					as_bytes(p).data(),						// address p
-					p.size(),
-					sizeof(T),
-					[](const void* x) { reinterpret_cast<const T*>(x)->~T(); }
-				});											// dtor to invoke
+				//	For now we'll just store individual dtors even for arrays.
+				//	TODO: To represent destructors for arrays more compactly,
+				//	have an array_destructor type as well with a count and size,
+				//  and when storing a new destructor check if it's immediately
+				//	after the end of an existing array destructor and if so just
+				//	++count, similarly when removing a destructor from the end,
+				//	or break apart an array_destructor when removing a
+				//	destructor from the middle
+				for (auto& t : p) {
+					dtors.push_back({
+						reinterpret_cast<const byte*>(&t),		// address
+						[](const void* x) { reinterpret_cast<const T*>(x)->~T(); }
+					});											// dtor to invoke
+				}
 			}
 		}
 
@@ -75,12 +81,10 @@ namespace gcpp {
 		//
 		void run_all() {
 			for (auto& d : dtors) {
-				for (auto i = 0; i < d.n; ++i) {
-					d.destroy(d.p + d.size*i);	// call object's destructor
-				}
+				d.destroy(d.p);	// call object's destructor
 			}
-			dtors.clear();	// this should just be an assignment to the vector's #used count
-		}					// since all the contained objects are trivially destructible
+			dtors.clear();
+		}
 
 		//	Runn all the destructors for objects in [begin,end)
 		//
@@ -110,13 +114,11 @@ namespace gcpp {
 			//	... then, execute them now that we're done using private state
 			//
 			for (auto& d : to_destroy) {
-				for (auto i = 0; i < d.n; ++i) {
-					//	=====================================================================
-					//  === BEGIN REENTRANCY-SAFE: ensure no in-progress use of private state
-					d.destroy(d.p + d.size*i);	// call object's destructor
-					//  === END REENTRANCY-SAFE: reload any stored copies of private state
-					//	=====================================================================
-				}
+				//	=====================================================================
+				//  === BEGIN REENTRANCY-SAFE: ensure no in-progress use of private state
+				d.destroy(d.p);	// call object's destructor
+				//  === END REENTRANCY-SAFE: reload any stored copies of private state
+				//	=====================================================================
 			}
 
 			//	else there wasn't a nontrivial destructor
@@ -1017,8 +1019,7 @@ namespace gcpp {
 	void destructors::debug_print() const {
 		std::cout << "\n  destructors size() is " << dtors.size() << "\n";
 		for (auto& d : dtors) {
-			std::cout << "    " << (void*)(d.p) << ", "
-				<< d.n << ", " << (void*)(d.destroy) << "\n";
+			std::cout << "    " << (void*)(d.p) << ", " << (void*)(d.destroy) << "\n";
 		}
 		std::cout << "\n";
 	}
