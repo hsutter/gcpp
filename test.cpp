@@ -387,7 +387,7 @@ void test_deferred_array() {
 int main() {
 	//test_page();
 
-	test_deferred_heap();
+	//test_deferred_heap();
 	//time_deferred_heap();
 
 	//test_deferred_allocator();
@@ -395,7 +395,7 @@ int main() {
 	//test_deferred_allocator_set();
 	//time_deferred_allocator_set();
 
-	//test_deferred_allocator_vector();
+	test_deferred_allocator_vector();
 	//time_deferred_allocator_vector();
 
 	//test_deferred_array();

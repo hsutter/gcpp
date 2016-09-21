@@ -62,7 +62,7 @@ namespace gcpp {
 		void operator=(gpage&) = delete;
 
 	public:
-		std::size_t locations() const noexcept { return total_size / min_alloc; }
+		int locations() const noexcept { return gsl::narrow_cast<int>(total_size) / min_alloc; }
 
 		const void* begin() const { return storage.get(); }
 
@@ -257,7 +257,7 @@ namespace gcpp {
 	//
 	inline
 	void gpage::deallocate(gsl::not_null<byte*> p) noexcept {
-		auto here = (p - &storage[0]) / min_alloc;
+		auto here = gsl::narrow_cast<int>((p - &storage[0]) / min_alloc);
 
 		// p had better point to our storage and to the start of an allocation
 		// (note: we could also check alignment here but that seems superfluous)

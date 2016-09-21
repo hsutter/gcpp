@@ -269,7 +269,7 @@ namespace gcpp {
 			//
 			template<class Hint>
 			dhpage(const Hint* /*--*/, size_t n, deferred_heap* heap)
-				: page{ std::max<size_t>(sizeof(Hint) * n * 2.62, 8192 /*good general default*/), 
+				: page{ std::max<size_t>(sizeof(Hint) * n * 3, 8192 /*good general default*/), 
 						std::max<size_t>(sizeof(Hint), 4) }
 				, live_starts{ page.locations(), false }
 				, myheap{ heap }
@@ -285,7 +285,7 @@ namespace gcpp {
 		destructors									 dtors;
 
 		bool is_destroying = false;
-		bool collect_before_expand = false;
+		bool collect_before_expand = false;	// TODO: pull this into an options struct
 
 
 	public:
@@ -857,7 +857,7 @@ namespace gcpp {
 
 		//	construct all the objects...
 
-		for (std::size_t i = 0; i < n; ++i) {
+		for (auto i = 0; i < n; ++i) {
 			//	=====================================================================
 			//  === BEGIN REENTRANCY-SAFE: ensure no in-progress use of private state
 			::new (p) T{};
@@ -988,7 +988,7 @@ namespace gcpp {
 		//	destructors if registered
 		//
 		for (auto& pg : pages) {
-			for (std::size_t i = 0; i < pg.page.locations(); ++i) {
+			for (auto i = 0; i < pg.page.locations(); ++i) {
 				auto start = pg.page.location_info(i);
 				if (start.is_start && !pg.live_starts.get(i)) {
 					//	this is an allocation to destroy and deallocate
