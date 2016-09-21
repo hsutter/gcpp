@@ -48,8 +48,6 @@ namespace gcpp {
 	public:
 		//	Store the destructor, if it's not trivial
 		//
-		//	Note: If not_null<span<T>> becomes supported, we can switch to that
-		//
 		template<class T>
 		void store(gsl::span<T> p) {
 			Expects(p.size() > 0

@@ -102,7 +102,8 @@ namespace gcpp {
 		location_info_ret
 		location_info(int where) const noexcept;
 
-		//  Deallocate space pointed to by p (must be to the start of an allocation)
+		//  Deallocate the allocation that starts at *p.
+		//	Note: p must be a pointer previously returned by allocate().
 		//
 		void deallocate(gsl::not_null<byte*> p) noexcept;
 
