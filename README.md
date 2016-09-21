@@ -122,7 +122,7 @@ No. That is a fine collector, but with different aims: It doesn't run destructor
 `deferred_heap` runs destructors, and the tracing is accurate (not conservative) and scoped to an individual granular heap.
 
 
-<a href="region"></a>## Q: "Is deferred_heap equivalent to [region-based memory management](https://en.wikipedia.org/wiki/Region-based_memory_management)?"
+(#region)## Q: "Is deferred_heap equivalent to [region-based memory management](https://en.wikipedia.org/wiki/Region-based_memory_management)?"
 
 It's a strict superset of regions.
 
