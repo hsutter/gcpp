@@ -70,10 +70,10 @@ namespace gcpp {
 		//
 		gpage(std::size_t total_size_ = 1024, std::size_t min_alloc_ = 4);
 
-		//  Allocate space for num objects of type T
+		//  Allocate space for n objects of type T
 		//
 		template<class T>
-		byte* allocate(std::size_t num = 1) noexcept;
+		byte* allocate(int n = 1) noexcept;
 
 		//  Return whether p points into this page's storage and is allocated.
 		//
@@ -139,11 +139,13 @@ namespace gcpp {
 	}
 
 
-	//  Allocate space for num objects of type T
+	//  Allocate space for n objects of type T
 	//
 	template<class T>
-	byte* gpage::allocate(std::size_t num) noexcept {
-		const auto bytes_needed = sizeof(T)*num;
+	byte* gpage::allocate(int n) noexcept {
+		Expects(n > 0 && "cannot request an empty allocation");
+
+		const auto bytes_needed = sizeof(T)*n;
 
 		//	optimization: if we know we don't have room, don't even scan
 		if (bytes_needed > current_known_request_bound) {

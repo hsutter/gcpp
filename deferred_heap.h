@@ -84,8 +84,10 @@ namespace gcpp {
 
 		//	Runn all the destructors for objects in [begin,end)
 		//
-		bool run(gsl::not_null<byte*> begin, gsl::not_null<byte*> end) {
-			Expects(begin < end && "begin must precede end");
+		bool run(gsl::span<byte> range) {
+			if (range.size() == 0)
+				return false;
+
 			bool ret = false;
 
 			//	for reentrancy safety, we'll take a local copy of destructors to be run
@@ -94,7 +96,8 @@ namespace gcpp {
 			//
 			std::vector<destructor> to_destroy;
 			for (auto it = dtors.begin(); it != dtors.end(); /*--*/) {
-				if (begin <= it->p && it->p < end) {
+				//	<= and -- to avoid dereferencing a past-the-end iterator
+				if (&*range.begin() <= it->p && it->p <= &*--range.end()) {
 					to_destroy.push_back(*it);
 					it = dtors.erase(it);
 					ret = true;
@@ -344,21 +347,21 @@ namespace gcpp {
 		find_dhpage_info_ret find_dhpage_info(T* p) noexcept;
 
 		template<class T>
-		std::pair<dhpage*, byte*> allocate_from_existing_pages(std::size_t n);
+		std::pair<dhpage*, byte*> allocate_from_existing_pages(int n);
 
 		template<class T>
-		deferred_ptr<T> allocate(std::size_t n = 1);
+		deferred_ptr<T> allocate(int n = 1);
 
 		template<class T, class ...Args> 
 		void construct(gsl::not_null<T*> p, Args&& ...args);
 
 		template<class T> 
-		void construct_array(gsl::not_null<T*> p, std::size_t n);
+		void construct_array(gsl::not_null<T*> p, int n);
 
 		template<class T> 
 		void destroy(gsl::not_null<T*> p) noexcept;
 		
-		bool destroy_objects(gsl::not_null<byte*> start, gsl::not_null<byte*> end);
+		bool destroy_objects(gsl::span<byte> range);
 
 		//------------------------------------------------------------------------
 		//
@@ -787,7 +790,7 @@ namespace gcpp {
 
 	template<class T>
 	std::pair<deferred_heap::dhpage*, byte*> 
-	deferred_heap::allocate_from_existing_pages(std::size_t n) {
+	deferred_heap::allocate_from_existing_pages(int n) {
 		for (auto& pg : pages) {
 			auto p = pg.page.allocate<T>(n);
 			if (p != nullptr)
@@ -797,8 +800,10 @@ namespace gcpp {
 	}
 
 	template<class T>
-	deferred_ptr<T> deferred_heap::allocate(std::size_t n) 
+	deferred_ptr<T> deferred_heap::allocate(int n) 
 	{
+		Expects(n > 0 && "cannot request an empty allocation");
+
 		//	get raw memory from the backing storage...
 		auto p = allocate_from_existing_pages<T>(n);
 
@@ -825,7 +830,7 @@ namespace gcpp {
 	{
 		//	if there are objects with deferred destructors in this
 		//	region, run those first and remove them
-		destroy_objects((byte*)p.get(), (byte*)(p.get() + 1));
+		destroy_objects({ (byte*)p.get(), sizeof(T) });
 
 		//	construct the object...
 
@@ -840,11 +845,13 @@ namespace gcpp {
 	}
 
 	template<class T>
-	void deferred_heap::construct_array(gsl::not_null<T*> p, std::size_t n)
+	void deferred_heap::construct_array(gsl::not_null<T*> p, int n)
 	{
+		Expects(n > 0 && "cannot request an empty array");
+
 		//	if there are objects with deferred destructors in this
 		//	region, run those first and remove them
-		destroy_objects((byte*)p.get(), (byte*)(p.get() + n));
+		destroy_objects({ (byte*)p.get(), gsl::narrow_cast<int>(sizeof(T)) * n });
 
 		//	construct all the objects...
 
@@ -868,8 +875,8 @@ namespace gcpp {
 	}
 
 	inline
-	bool deferred_heap::destroy_objects(gsl::not_null<byte*> start, gsl::not_null<byte*> end) {
-		return dtors.run(start, end);
+	bool deferred_heap::destroy_objects(gsl::span<byte> range) {
+		return dtors.run(range);
 	}
 
 	//------------------------------------------------------------------------
@@ -879,52 +886,23 @@ namespace gcpp {
 	inline
 	void deferred_heap::mark(const deferred_ptr_void& p, std::size_t level) noexcept
 	{
-		// if it isn't null ...
+		//	if it isn't null ...
 		if (p.get() == nullptr)
 			return;
 
-	// TODO -- better replacement for rest of this function
-		////	... find which page it points into ...
-		//auto where = find_dhpage_info(&p);
-		//Expects(where.page != nullptr
-		//	&& "must not mark a location that's not in our heap");
+		//	... in the page it points to, mark the allocation as live ...
+		auto where = p.get_page()->page.contains_info((byte*)p.get());
+		p.get_page()->live_starts.set(where.start_location, true);
 
-		//// ... mark the chunk as live ...
-		//where.page.live_starts.set(where.start_location, true);
-
-		////	... and mark any deferred_ptrs in the allocation as reachable
-		//for (auto& dp : deferred_ptrs) {
-		//	// TODO this is inefficient, clean up
-		//	auto dp_where = where.page.page.contains_info((byte*)dp.p);
-		//	if (dp_where.found != gpage::not_in_range
-		//		&& dp_where.start_location == where.info.start_location
-		//		&& dp.level == 0) {
-		//		dp.level = level;	// 'level' steps from a root
-		//	}
-		//}
-
-
-		// ... find which page it points into ...
-		for (auto& pg : pages) {
-			auto where = pg.page.contains_info((byte*)p.get());
-			Expects(where.found != gpage::in_range_unallocated
-				&& "must not point to unallocated memory");
-			if (where.found != gpage::not_in_range) {
-				// ... and mark the chunk as live ...
-				pg.live_starts.set(where.start_location, true);
-
-				// ... and mark any deferred_ptrs in the allocation as reachable
-				for (auto& dp : pg.deferred_ptrs) {
-					auto dp_where = pg.page.contains_info((byte*)dp.p);
-					Expects((dp_where.found == gpage::in_range_allocated_middle
-						|| dp_where.found == gpage::in_range_allocated_start)
-						&& "points to unallocated memory");
-					if (dp_where.start_location == where.start_location
-						&& dp.level == 0) {
-						dp.level = level;	// 'level' steps from a root
-					}
-				}
-				break;
+		//	... and mark any deferred_ptrs in the allocation as reachable
+		for (auto& dp : p.get_page()->deferred_ptrs) {
+			auto dp_where = p.get_page()->page.contains_info((byte*)dp.p);
+			Expects((dp_where.found == gpage::in_range_allocated_middle
+				|| dp_where.found == gpage::in_range_allocated_start)
+				&& "points to unallocated memory");
+			if (dp_where.start_location == where.start_location
+				&& dp.level == 0) {
+				dp.level = level;	// 'level' steps from a root
 			}
 		}
 	}
@@ -1025,7 +1003,7 @@ namespace gcpp {
 					}
 
 					// call the destructors for objects in this range
-					destroy_objects(start.pointer, end);
+					destroy_objects({ start.pointer, end - start.pointer });
 
 					// and then deallocate the raw storage
 					pg.page.deallocate(start.pointer);
