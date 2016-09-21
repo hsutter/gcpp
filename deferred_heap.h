@@ -158,22 +158,20 @@ namespace gcpp {
 		//
 		//	There are two main states:
 		//
-		//	- unattached, mypage == nullptr
+		//	- unattached, myheap == nullptr
 		//		this pointer is not yet attached to a heap, and p must be null
 		//
-		//	- attached, mypage != nullptr
-		//		this pointer is attached to mypage->myheap and must not be
-		//		repointed to a different heap (assignment from a pointer into
-		//		a different heap is not allowed)
+		//	- attached, myheap != nullptr
+		//		this pointer is attached to myheap and must not be repointed to a
+		//		different heap (assignment from a pointer into a different heap is
+		//		not allowed)
 		//
 		//	The pointer becomes attached when it is first constructed or assigned with
 		//	a non-null page pointer (incl. when copied from an attached pointer). The
 		//	pointer becomes unattached when the heap it was attached to is destroyed.
 		//
-		struct dhpage;
-
 		class deferred_ptr_void {
-			dhpage* mypage;
+			deferred_heap* myheap;
 			void* p;
 
 			friend deferred_heap;
@@ -181,42 +179,42 @@ namespace gcpp {
 		protected:
 			void  set(void* p_) noexcept { p = p_; }
 
-			deferred_ptr_void(dhpage* page = nullptr, void* p_ = nullptr)
-				: mypage{ page }
+			deferred_ptr_void(deferred_heap* heap = nullptr, void* p_ = nullptr)
+				: myheap{ heap }
 				, p{ p_ }
 			{
 				//	Allow null pointers, we'll set the page on the first assignment
-				Expects((p == nullptr || mypage != nullptr) && "page cannot be null for a non-null pointer");
-				if (mypage != nullptr) {
-					mypage->myheap->enregister(*this);
+				Expects((p == nullptr || myheap != nullptr) && "heap cannot be null for a non-null pointer");
+				if (myheap != nullptr) {
+					myheap->enregister(*this);
 				}
 			}
 
 			~deferred_ptr_void() {
-				if (mypage != nullptr) {
-					mypage->myheap->deregister(*this);
+				if (myheap != nullptr) {
+					myheap->deregister(*this);
 				}
 			}
 
 			deferred_ptr_void(const deferred_ptr_void& that)
-				: deferred_ptr_void(that.mypage, that.p)
+				: deferred_ptr_void(that.myheap, that.p)
 			{ }
 
 			deferred_ptr_void& operator=(const deferred_ptr_void& that) noexcept {
 				//	Allow assignment from an unattached null pointer
-				if (that.mypage == nullptr) {
+				if (that.myheap == nullptr) {
 					Expects(that.p == nullptr && "unattached deferred_ptr must be null");
 					reset();	// just to keep the nulling logic in one place
 				}
 
 				//	Otherwise, we must be unattached or pointing into the same heap
 				else {
-					Expects((mypage == nullptr || mypage->myheap == that.mypage->myheap)
+					Expects((myheap == nullptr || myheap == that.myheap)
 						&& "cannot assign deferred_ptrs into different deferred_heaps");
 					p = that.p;
-					if (mypage == nullptr) {
-						that.mypage->myheap->enregister(*this);	// perform lazy attach
-						mypage = that.mypage;
+					if (myheap == nullptr) {
+						that.myheap->enregister(*this);	// perform lazy attach
+						myheap = that.myheap;
 					}
 				}
 
@@ -228,19 +226,15 @@ namespace gcpp {
 			//
 			void detach() noexcept {
 				p = nullptr;
-				mypage = nullptr;
+				myheap = nullptr;
 			}
-
-			dhpage* get_page() const noexcept { return mypage; }
 
 		public:
-			deferred_heap* get_heap() const noexcept { return mypage ? mypage->myheap : nullptr; }
+			deferred_heap* get_heap() const noexcept { return myheap; }
 
-			void* get() const noexcept {
-				return p;
-			}
+			void* get() const noexcept { return p; }
 
-			void  reset() noexcept { p = nullptr; /* leave mypage alone so we can assign again */ }
+			void  reset() noexcept { p = nullptr; /* leave myheap alone so we can assign again */ }
 		};
 
 		//	For non-roots (deferred_ptrs that are in the deferred heap), we'll additionally
@@ -383,7 +377,6 @@ namespace gcpp {
 		}
 
 		void debug_print() const;
-
 	};
 
 
@@ -395,8 +388,8 @@ namespace gcpp {
 	//
 	template<class T>
 	class deferred_ptr : public deferred_heap::deferred_ptr_void {
-		deferred_ptr(deferred_heap::dhpage* page, T* p)
-			: deferred_ptr_void{ page, p }
+		deferred_ptr(deferred_heap* heap, T* p)
+			: deferred_ptr_void{ heap, p }
 		{ }
 
 		friend deferred_heap;
@@ -452,8 +445,8 @@ namespace gcpp {
 
 		template<class U, class TT = T>
 		deferred_ptr<U> ptr_to(U id_t<TT>::*pU) {
-			Expects(get_page() && get() && "can't ptr_to on a null pointer");
-			return{ get_page(), &(get()->*pU) };
+			Expects(get_heap() && get() && "can't ptr_to on an unattached or null pointer");
+			return{ get_heap(), &(get()->*pU) };
 		}
 
 		//	Accessors.
@@ -486,7 +479,14 @@ namespace gcpp {
 		GCPP_TOTALLY_ORDERED_COMPARISON(deferred_ptr);	// maybe someday this will be default
 													
 													
-		//	Checked pointer arithmetic -- TODO this should probably go into a separate array_deferred_ptr type
+		//	Checked pointer arithmetic
+		//
+		//	TODO: This is checked in debug mode, but it might be better to split off
+		//	arithmetic into a separate array_deferred_ptr or deferred_span or suchlike
+		//	type. For now it's on deferred_ptr itself because when you instantiate
+		//	vector<T, deferred_allocator<T>> you need a pointer type that works as a
+		//	random-access iterator, and if we split this into an array_deferred_ptr type
+		//	we'll also need to make deferred_allocator use that instead... that can wait.
 		//
 		deferred_ptr& operator+=(int offset) noexcept {
 #ifndef NDEBUG
@@ -620,7 +620,7 @@ namespace gcpp {
 
 	template<>
 	class deferred_ptr<void> : public deferred_heap::deferred_ptr_void {
-		deferred_ptr(deferred_heap::dhpage* page, void* p)
+		deferred_ptr(deferred_heap* page, void* p)
 			: deferred_ptr_void(page, p)
 		{ }
 
@@ -824,7 +824,7 @@ namespace gcpp {
 		}
 
 		Expects(p.second != nullptr && "failed to allocate but didn't throw an exception");
-		return{ p.first, reinterpret_cast<T*>(p.second) };
+		return{ this, reinterpret_cast<T*>(p.second) };
 	}
 
 	template<class T, class ...Args>
@@ -892,19 +892,27 @@ namespace gcpp {
 		if (p.get() == nullptr)
 			return;
 
-		//	... in the page it points to, mark the allocation as live ...
-		auto where = p.get_page()->page.contains_info((byte*)p.get());
-		p.get_page()->live_starts.set(where.start_location, true);
+		// ... find which page it points into ...
+		for (auto& pg : pages) {
+			auto where = pg.page.contains_info((byte*)p.get());
+			Expects(where.found != gpage::in_range_unallocated
+				&& "must not point to unallocated memory");
+			if (where.found != gpage::not_in_range) {
+				// ... and mark the chunk as live ...
+				pg.live_starts.set(where.start_location, true);
 
-		//	... and mark any deferred_ptrs in the allocation as reachable
-		for (auto& dp : p.get_page()->deferred_ptrs) {
-			auto dp_where = p.get_page()->page.contains_info((byte*)dp.p);
-			Expects((dp_where.found == gpage::in_range_allocated_middle
-				|| dp_where.found == gpage::in_range_allocated_start)
-				&& "points to unallocated memory");
-			if (dp_where.start_location == where.start_location
-				&& dp.level == 0) {
-				dp.level = level;	// 'level' steps from a root
+				// ... and mark any deferred_ptrs in the allocation as reachable
+				for (auto& dp : pg.deferred_ptrs) {
+					auto dp_where = pg.page.contains_info((byte*)dp.p);
+					Expects((dp_where.found == gpage::in_range_allocated_middle
+						|| dp_where.found == gpage::in_range_allocated_start)
+						&& "points to unallocated memory");
+					if (dp_where.start_location == where.start_location
+						&& dp.level == 0) {
+						dp.level = level;	// 'level' steps from a root
+					}
+				}
+				break;
 			}
 		}
 	}
