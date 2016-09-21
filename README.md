@@ -1,17 +1,26 @@
 # **gcpp**: Deferred and unordered destruction
 
-Herb Sutter -- Updated 2016-09-15
+Herb Sutter -- Updated 2016-09-21
+
+## Motivation
+
+gcpp is an experiment: Can we take the deferred and unordered destruction patterns with custom reachability tracing logic that we find ourselves writing by hand today, and automate some parts of that work as a reusable C++ library?
+
+This is a demo of a potential additional fallback option for the rare cases where `unique_ptr`, `shared_ptr`, and `weak_ptr` aren't quite enough, notably when you have objects that refer to each other in local owning cycles, or when you need to defer destructor execution to meet real-time deadlines or bound destructor stack cost. The point of this demo is to illustrate ideas that others can draw from. This is not a production quality library, and is not supported.
 
 ## Overview
 
-gcpp is an experiment toward automating some support for deferred and unordered destruction.
+A `deferred_heap` owns a "bubble" of objects that can point to each other arbitrarily within the same heap; cycles within the heap are supported.
 
-`deferred_heap` provides a local (sub)heap designed to be used by a class or module.
+It has three main functions:
 
-- Calling `.make<T>()` allocates and constructs a new `T` object. If `T` is not trivially destructible, it will also record the destructor to be eventually invoked.
+- `.make<T>()` allocates and constructs a new `T` object and returns a `deferred_ptr<T>`. If `T` is not trivially destructible, it will also record the destructor to be eventually invoked.
 
-- Calling `.collect()` traces this heap in isolation. Any unreachable objects will have their deferred destructors run before their memory is deallocated.
+- `.collect()` traces this heap in isolation. Any unreachable objects will have their deferred destructors run before their memory is deallocated.
 
+- `~deferred_heap()` runs any deferred destructors and resetting any `deferred_ptr`s that outlive this heap to null, then releases its memory all at once like a [region](#region).
+
+Local small heaps are encouraged. This keeps tracing isolated and composable; combining libraries that each use `deferred_heap`s internally will not directly affect each other's performance. 
 
 ### Approach
 
@@ -21,29 +30,7 @@ gcpp aims to continue C++'s long tradition of being a great language for buildin
 
 - Similarly, `make_shared` and `shared_ptr` automate managing the lifetime of a single shared heap object. Using them is usually as efficient as (and always easier and less brittle than) managing reference counts by hand.
 
-- In gcpp, `deferred_heap` and `deferred_ptr` take a stab at how we might automate managing the lifetime of a group of shared heap objects that (a) may contain cycles or (b) need deterministic pointer manipulation space and time cost. The goal is that using them be usually as efficient as (and easier and more robust than) managing ownership and writing custom tracing logic by hand to discover and perform destruction of unreachable objects.
-
-### Goals and non-goals
-
-_**gcpp is**_:
-
-- a demo of another fallback option for the rare cases where `unique_ptr`, `shared_ptr`, and `weak_ptr` aren't quite enough, notably when you have objects that refer to each other in owning cycles or when you need to defer destructor execution to meet real-time deadlines or bound destructor stack cost;
-
-- designed to encourage tactical isolated use, where each `deferred_heap` is its own little self-contained island of memory and objects;
-
-- strict about meeting C++'s zero-overhead abstraction principle (a.k.a. "you don't pay for what you don't use and you usually couldn't write it more efficiently by hand") -- space and time cost is always proportional to how much `deferred_heap` allocation and `deferred_ptr` use your code performs, including zero cost if your code never does any allocation; and
-
-- a fun project to try out and demo some ideas you might borrow to write your own similar facility.
-
-_**gcpp is not**_:
-
-- production quality, so don't email me for support;
-
-- scalable, so don't try having millions of pointers; or
-
-- well tested, so expect bugs.
-
-_**gcpp will not ever**_ trace the whole C++ heap, incur uncontrollable or global pauses, add a "finalizer" concept, permit object "resurrection," be recommended as a default allocator, or replace `unique_ptr` and `shared_ptr` -- we are very happy with C++'s current lifetime model, and the aim here is only to see if we can add a fourth fallback when today's options are insufficient to replace code we would otherwise have to write by hand in a custom way every time we need it.
+- In gcpp, `deferred_heap` and `deferred_ptr` take a stab at how we might automate managing the lifetime of a **group of related shared heap objects** that (a) may contain cycles and/or (b) needs deterministic pointer manipulation space and time cost. The goal is that using them be usually as efficient as (and easier and more robust than) managing ownership and writing custom tracing logic by hand to discover and perform destruction of unreachable objects. Because reachability is a property of the whole group, not of a single object or subgroup, an abstraction that owns the whole group is needed.
 
 ## Target use cases
 
@@ -105,32 +92,50 @@ The following summarizes the best practices we should already teach for expressi
 
 # FAQs
 
-## Q: "Is deferred_heap equivalent to [region-based memory management](https://en.wikipedia.org/wiki/Region-based_memory_management)?"
+## Q: "Is this [garbage collection](https://en.wikipedia.org/wiki/Garbage_collection_(computer_science))?"
 
-`deferred_heap` is a strict superset of regions.
+Of course, and remember so is reference counting.
 
-The key idea of a region is to efficiently release the region's memory in one shot when the region is destroyed, with deallocate-at-once semantics.
+## Q: "I meant, is this just [tracing garbage collection](https://en.wikipedia.org/wiki/Tracing_garbage_collection) (GC)?"
 
-`deferred_heap` does that, but goes further in three ways:
+Not the tracing GC most people are familiar with.
 
-- It adds  optional **`.collect()`** to reclaim unused parts of the region without waiting for the whole region to be destroyed. If you don't call `.collect()`, then when the heap is destroyed the heap's memory is released all at once, exactly like a region.
+Most importantly, **`deferred_heap` collects objects, not garbage**:
 
-- It owns **objects**, not just raw memory, and always correctly destroys any pending destructors for objects that are still in the heap when it is destroyed (or, if `.collect()` is called, that are unreachable). If you don't allocate any non-trivially destructible objects, then when the heap is destroyed no additional destructors need to be performed before the memory is released.
+- Most mainstream tracing GC is about *managing raw memory*, which can turn into meaningless "garbage" bytes. Tearing down the real objects that live in that memory is at best a brittle afterthought not designed as an integrated part of the language runtime; see the restrictions on ["finalizers"](https://en.wikipedia.org/wiki/Finalizer) in Java, C#, D, Go, etc. (in C# what are called "destructors" are finalizers) -- all the major GC-based environments I know of that have more than 10 years' field experience with finalizers now recommend avoiding finalizers outright in released code ([example](http://www.hboehm.info/gc/finalization.html)), for the same reasons: they are not guaranteed to be executed, they are fragile because a finalizer should not (but can) access other possibly-finalized objects, and they lead to unmanageable complications like [object resurrection](https://en.wikipedia.org/wiki/Object_resurrection) (the worst case of which is making a *finalized* object reachable again).
 
-- It knows its **roots**, and safely resets any outstanding `deferred_ptr`s that outlive the heap they point into. If you don't let any `deferred_ptr`s outlive the heap they point into, then when the heap is destroyed no additional nulling needs to be performed.
+- `deferred_heap` is fundamentally about *managing objects*, and is focused on deferring real destructors. So although it does perform liveness tracing, the most important way it differs from the mainstream tracing GC designs is that it tracks and collects constructed objects, and runs their deferred destructors. And because of that emphasis on running real destructors safely, `deferred_heap` makes all of a collectable object's `deferred_ptr`s null before running its destructor, which entirely prevents accessing possibly-destroyed objects and object resurrection. 
+
+    - Note: gcpp is a demo for people to draw ideas from. That includes other languages; I encourage other GC-based languages to consider just nulling object references *that point to other finalizable objects* before running a round of finalizers. That should nearly always turn a latent bug into a NullPointerException/NullReferenceException/nil-pointer-panic/etc. Although it could be a breaking change in behavior for some programs, it is very likely to "break" only code that is already living on the edge and doing things your language's experts already recommend they not do. In C++, when we discuss changes that would break suspicious code, Bjarne Stroustrup likes to call it "code that deserves to be broken." So, think about it, and consider whether it makes sense to "break" code deliberately in your language for this case.
+
+The other important difference is that **`deferred_heap` is tactical and granular, not default and global**:
+
+- Most mainstream languages that assume GC make the garbage-collected allocator the primary or only way to create heap objects, and the program shares a single global heap. Performing something other than GC allocation requires fighting with, and avoiding large parts of, the language and its standard library; for example, by resorting to writing your own allocator by allocating a large array and using unsafe pointers, or by calling out to native code. Further, tracing collection performance (e.g., GC pauses) of one part of the program can depend on allocation done by an unrelated library linked into the program.
+
+- `deferred_heap` is intended to be used tactically as another fallback in situations where options like `unique_ptr` and `shared_ptr` are insufficient, and even then in a granular way with a distinct `deferred_heap` within a class (or at most module). Tracing is performed only within each individual `deferred_heap` bubble, and cycles must stay within the same heap in order to be collected. (Yes, it's possible to instantiate and share a global `deferred_heap`, but that isn't the way I intend this to be used, and certainly the current implementation won't scale well to millions of pointers.)
+
+
+## Q: "Is this related/similar to the [Boehm collector](http://www.hboehm.info/gc/)?"
+
+No. That is a fine collector, but with different aims: It doesn't run destructors, and its tracing is [conservative](http://stackoverflow.com/questions/7629446/conservative-garbage-collector) and more global (touches memory beyond the actual GC allocations and roots, such as to discover roots conservatively).
+
+`deferred_heap` runs destructors, and the tracing is accurate (not conservative) and scoped to an individual granular heap.
+
+
+<a href="region"></a>## Q: "Is deferred_heap equivalent to [region-based memory management](https://en.wikipedia.org/wiki/Region-based_memory_management)?"
+
+It's a strict superset of regions.
+
+The key idea of a region is to efficiently release the region's memory in one shot when the region is destroyed, with deallocate-at-once semantics. `deferred_heap` does that, but goes further in three ways:
+
+- It adds  optional **collection** via `.collect()` to reclaim unused parts of the region without waiting for the whole region to be destroyed. If you don't call `.collect()`, then when the heap is destroyed the heap's memory is released all at once, exactly like a region.
+
+- It owns **objects**, not just raw memory, and always correctly destroys any pending destructors for objects that are still in the heap when it is destroyed (or, if `.collect()` is called, that are unreachable). If you allocate only trivially destructible objects, then this adds zero work -- when the heap is destroyed, no additional destructors need to be run.
+
+- It knows its **roots**, and safely resets any outstanding `deferred_ptr`s that outlive the heap they point into. If you don't let any `deferred_ptr`s outlive the heap they point into, then this adds zero work -- when the heap is destroyed, no additional nulling needs to be performed.
 
 The only work performed in the `deferred_heap` destructor is to run pending destructors, null out any `deferred_ptr`s that outlive the heap, and release the heap's memory pages. So if you use a `deferred_heap` and never call `.collect()`, never allocate a non-trivially destructible object, and never let a `deferred_ptr` outlive the heap, then destroying the heap does exactly nothing beyond efficiently dropping any memory it owns with deallocate-at-once semantics -- and then, yes, it's a region. But, unlike a region, you *can* do any of those things, and if you do then they are safe.
 
-
-## Q: "Isn't this tracing garbage collection (GC)?"
-
-No. It does tracing, but this isn't what people know as tracing GC in other major languages.
-
-Most commercial tracing GC is about *managing raw memory*. Tearing down the real objects that live in that memory is at best a brittle afterthought not designed as an integrated part of the language runtime; see the restrictions on "finalizers" in Java, C#, Go, etc. -- all the major GC-based languages I know of that have more than 10 years' field experience with finalizers now recommend avoiding finalizers outright in released code. Also, most major GC-based languages make the garbage-collected allocator the sole allocator; avoiding GC allocation by resorting to writing your own allocator by allocating a large array and using unsafe pointers amounts to fighting against the language and turning most of it off.
-
-`deferred_heap` is fundamentally about *managing objects*, and is focused on deferring real destructors. So although it does perform liveness tracing, but differs from most major tracing GC designs primarily because it doesn't collect "garbage" -- it collects constructed objects, and runs their deferred destructors.
-
-Additionally, it's not intended to be a big huge shared -- or default, or only -- heap. It's intended to be used tactically and within a class or module, with tracing performed only within that bubble, and only as another fallback in situations where options like `unique_ptr` and `shared_ptr` are insufficient. Cycles must stay within the same heap in order to be collected. (Yes, it's possible to instantiate and share a global `deferred_heap`, but that isn't the way I intend this to be used.)
 
 
 # Implementation notes
