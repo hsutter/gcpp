@@ -171,6 +171,21 @@ namespace gcpp {
 		//	pointer becomes unattached when the heap it was attached to is destroyed.
 		//
 		class deferred_ptr_void {
+			//	There are other ways to implement this, including to make deferred_ptr
+			//	be the same size as an ordinary pointer and trivially copyable; one
+			//	alternative implementation checked in earlier did that.
+			//
+			//	For right now, I think it's easier to present the key ideas initially
+			//	with fewer distractions by just keeping a back pointer to the heap.
+			//	The two reasons are to enable debug checks to prevent cross-assignment
+			//	from multiple heaps, and to know where to deregister. Other ways to
+			//	do the same include having statically tagged heaps, such as having
+			//	deferred_heap<MyHeapTag> give deferred_ptr<T, MyHeapTag>s and
+			//	just statically prevent cross-assignment and statically identify the
+			//	heaps, which lets you have trivially copyable deferred_ptrs and no
+			//	run-time overhead for deferred_ptr space and assignment. I felt that
+			//	explaining static heap tagging would be a distraction in the initial 
+			//	presentation from the central concepts that are actually important.
 			deferred_heap* myheap;
 			void* p;
 

@@ -4,7 +4,7 @@ Herb Sutter -- Updated 2016-09-21
 
 ## Motivation
 
-gcpp is an experiment: Can we take the deferred and unordered destruction patterns with custom reachability tracing logic that we find ourselves writing by hand today, and automate some parts of that work as a reusable C++ library?
+gcpp is a personal project to try an experiment: Can we take the deferred and unordered destruction patterns with custom reachability tracing logic that we find ourselves writing by hand today, and automate some parts of that work as a reusable C++ library that delivers it as a zero-overhead abstraction?
 
 This is a demo of a potential additional fallback option for the rare cases where `unique_ptr`, `shared_ptr`, and `weak_ptr` aren't quite enough, notably when you have objects that refer to each other in local owning cycles, or when you need to defer destructor execution to meet real-time deadlines or bound destructor stack cost. The point of this demo is to illustrate ideas that others can draw from. This is not a production quality library, and is not supported.
 
@@ -18,7 +18,7 @@ It has three main functions:
 
 - `.collect()` traces this heap in isolation. Any unreachable objects will have their deferred destructors run before their memory is deallocated.
 
-- `~deferred_heap()` runs any deferred destructors and resetting any `deferred_ptr`s that outlive this heap to null, then releases its memory all at once like a [region](#region).
+- `~deferred_heap()` runs any deferred destructors and resets any `deferred_ptr`s that outlive this heap to null, then releases its memory all at once like a [region](#is-deferred_heap-equivalent-to-a-region).
 
 Local small heaps are encouraged. This keeps tracing isolated and composable; combining libraries that each use `deferred_heap`s internally will not directly affect each other's performance. 
 
@@ -92,11 +92,11 @@ The following summarizes the best practices we should already teach for expressi
 
 # FAQs
 
-## Q: "Is this [garbage collection](https://en.wikipedia.org/wiki/Garbage_collection_(computer_science))?"
+## Is this [garbage collection](https://en.wikipedia.org/wiki/Garbage_collection_(computer_science))?
 
 Of course, and remember so is reference counting.
 
-## Q: "I meant, is this just [tracing garbage collection](https://en.wikipedia.org/wiki/Tracing_garbage_collection) (GC)?"
+## I meant, is this just [tracing garbage collection](https://en.wikipedia.org/wiki/Tracing_garbage_collection) (GC)?
 
 Not the tracing GC most people are familiar with.
 
@@ -115,16 +115,16 @@ The other important difference is that **`deferred_heap` is tactical and granula
 - `deferred_heap` is intended to be used tactically as another fallback in situations where options like `unique_ptr` and `shared_ptr` are insufficient, and even then in a granular way with a distinct `deferred_heap` within a class (or at most module). Tracing is performed only within each individual `deferred_heap` bubble, and cycles must stay within the same heap in order to be collected. (Yes, it's possible to instantiate and share a global `deferred_heap`, but that isn't the way I intend this to be used, and certainly the current implementation won't scale well to millions of pointers.)
 
 
-## Q: "Is this related/similar to the [Boehm collector](http://www.hboehm.info/gc/)?"
+## Is this related/similar to the [Boehm collector](http://www.hboehm.info/gc/)?"
 
 No. That is a fine collector, but with different aims: It doesn't run destructors, and its tracing is [conservative](http://stackoverflow.com/questions/7629446/conservative-garbage-collector) and more global (touches memory beyond the actual GC allocations and roots, such as to discover roots conservatively).
 
 `deferred_heap` runs destructors, and the tracing is accurate (not conservative) and scoped to an individual granular heap.
 
 
-(#region)## Q: "Is deferred_heap equivalent to [region-based memory management](https://en.wikipedia.org/wiki/Region-based_memory_management)?"
+## Is deferred_heap equivalent to a region?
 
-It's a strict superset of regions.
+It's a strict superset of [region-based memory management](https://en.wikipedia.org/wiki/Region-based_memory_management).
 
 The key idea of a region is to efficiently release the region's memory in one shot when the region is destroyed, with deallocate-at-once semantics. `deferred_heap` does that, but goes further in three ways:
 
