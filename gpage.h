@@ -178,7 +178,7 @@ namespace gcpp {
 		for (; i < end; i += locations_step) {
 			//	check to see whether we have enough free locations starting here
 			std::size_t j = 0;
-			//	TODO replace this loop with a function call
+			//	Future: replace this loop with a function call
 			for (; j < locations_needed; ++j) {
 				// if any location is in use, keep going
 				if (inuse.get(i + j)) {
@@ -232,7 +232,7 @@ namespace gcpp {
 
 		if (!starts.get(where))	{
 			auto start = where;
-			//	TODO replace this loop with a function call
+			//	Future: replace this loop with a function call
 			while (start > 0 && !starts.get(start - 1)) {
 				--start;
 			}

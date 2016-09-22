@@ -92,7 +92,7 @@ namespace gcpp {
 		}
 	};
 
-	//	TODO Just set(from,to) is a performance improvement over vector<bool>,
+	//	Future: Just set(from,to) is a performance improvement over vector<bool>,
 	//	but also add find_next_false etc. functions to eliminate some loops
 
 }

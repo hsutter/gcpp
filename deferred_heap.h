@@ -52,7 +52,7 @@ namespace gcpp {
 				&& "no object to register for destruction");
 			if (!std::is_trivially_destructible<T>::value) {
 				//	For now we'll just store individual dtors even for arrays.
-				//	TODO: To represent destructors for arrays more compactly,
+				//	Future: To represent destructors for arrays more compactly,
 				//	have an array_destructor type as well with a count and size,
 				//  and when storing a new destructor check if it's immediately
 				//	after the end of an existing array destructor and if so just
@@ -274,7 +274,7 @@ namespace gcpp {
 			//	at least 1 + phi ~= 2.62 of these requests (but at least 8K),
 			//	and a tracking min_alloc chunk sizeof(request) (but at least 4 bytes).
 			//	Note: Hint used only to deduce total size and tracking granularity.
-			//	TODO: don't allocate objects on pages with chunk sizes > 2 * object size
+			//	Future: Don't allocate objects on pages with chunk sizes > 2 * object size
 			//
 			template<class Hint>
 			dhpage(const Hint* /*--*/, size_t n, deferred_heap* heap)
@@ -294,7 +294,7 @@ namespace gcpp {
 		destructors									 dtors;
 
 		bool is_destroying = false;
-		bool collect_before_expand = false;	// TODO: pull this into an options struct
+		bool collect_before_expand = false;	// Future: pull this into an options struct
 
 
 	public:
@@ -496,7 +496,7 @@ namespace gcpp {
 													
 		//	Checked pointer arithmetic
 		//
-		//	TODO: This is checked in debug mode, but it might be better to split off
+		//	Future: This is checked in debug mode, but it might be better to split off
 		//	arithmetic into a separate array_deferred_ptr or deferred_span or suchlike
 		//	type. For now it's on deferred_ptr itself because when you instantiate
 		//	vector<T, deferred_allocator<T>> you need a pointer type that works as a
@@ -604,18 +604,18 @@ namespace gcpp {
 				&& "bad deferred_ptr arithmetic: attempt to leave dhpage");
 
 			Expects(
-				//	if that points to the start of an allocation, it's always legal
+				//	If that points to the start of an allocation, it's always legal
 				//	to form a pointer to the following element (just don't deref it)
 				//	which covers one-past-the-end of single-element allocations
 				//
-				//	TODO: we could eliminate this first test by adding an extra byte
+				//	Future: We could eliminate this first test by adding an extra byte
 				//	to every allocation, then we'd be type-safe too (this being the
 				//	only way to form a deferred_ptr<T> to something not allocated as a T)
 				((
 					that_info.info.found == gpage::in_range_allocated_start
 					&& (get() == that.get()+1)
 					)
-					//	otherwise this and temp must point into the same allocation
+					//	Otherwise this and temp must point into the same allocation
 					//	which is covered for arrays by the extra byte we allocated
 					|| (
 						that_info.info.start_location == this_info.info.start_location
@@ -628,10 +628,7 @@ namespace gcpp {
 		}
 	};
 
-	//	Specialize void just to get rid of the void& return from op*
-
-	//	TODO actually we should be able to just specialize that one function
-	//	(if we do that, also disable arithmetic on void... perhaps that just falls out)
+	//	Specialize void just to get rid of the void& return from operator*
 
 	template<>
 	class deferred_ptr<void> : public deferred_heap::deferred_ptr_void {
@@ -834,7 +831,7 @@ namespace gcpp {
 		if (p.second == nullptr) {
 			//	pass along the type hint for size/alignment
 			pages.emplace_back((T*)nullptr, n, this);
-			p.first = &pages.back();	// TODO just use emplace_back's return value, in a C++17 STL
+			p.first = &pages.back();	// Future: just use emplace_back's return value, in a C++17 STL
 			p = { p.first, p.first->page.allocate<T>(n) };
 		}
 
