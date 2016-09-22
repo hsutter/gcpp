@@ -1,6 +1,6 @@
 # **gcpp**: Deferred and unordered destruction
 
-Herb Sutter -- Updated 2016-09-21
+Herb Sutter -- Updated 2016-09-22
 
 ## Motivation, goals, and disclaimers
 
@@ -181,10 +181,10 @@ The other important difference is that **`deferred_heap` meets C++'s zero-overhe
 
 - Most mainstream languages that assume GC make the garbage-collected allocator the primary or only way to create heap objects, and all parts of the program (including all libraries linked into the executable) end up sharing a single global heap. Performing something other than GC allocation requires fighting with, and avoiding large parts of, the language and its standard library; for example, by resorting to writing your own allocator by allocating a large array and using unsafe pointers, or by calling out to native code. Further, tracing collection performance (e.g., GC pause timing and duration) in one part of the program can depend on allocation done by an unrelated library linked into the program.
 
-- `deferred_heap` is intended to be used tactically as another fallback in situations where options like `unique_ptr` and `shared_ptr` are insufficient, and even then in a granular way with a distinct `deferred_heap` within a class (or at most module). You don't pay for what you don't use: If you never perform a deferred allocation then there is zero cost, and if you do perform a deferred allocation then the cost is always proportional to the amount of deferred allocation you do. Tracing is performed only within each individual `deferred_heap` bubble, and cycles must stay within the same heap in order to be collected. (Yes, it's possible to instantiate and share a global `deferred_heap`, but that isn't the way I intend this to be used, and certainly the current demo implementation isn't intended to scale well to millions of pointers.)
+- `deferred_heap` is intended to be used tactically as another fallback in situations where options like `unique_ptr` and `shared_ptr` are insufficient, and even then in a granular way with a distinct `deferred_heap` within a class (or at most module). You don't pay for what you don't use: If you never perform a deferred allocation then there is zero cost, and if you do perform some deferred allocation then the cost is always proportional to the amount of deferred allocation you do. Tracing is performed only within each individual `deferred_heap` bubble, and cycles of `deferred_ptr`s must stay within the same heap in order to be collected. (Yes, it's possible to instantiate and share a global `deferred_heap`, but that isn't the way I intend this to be used, and certainly the current demo implementation isn't intended to scale well to millions of pointers.)
 
 
-## Is this related/similar to the [Boehm collector](http://www.hboehm.info/gc/)?"
+## Is this related/similar to the [Boehm collector](http://www.hboehm.info/gc/)?
 
 No. That is a fine collector, but with different aims:
 
@@ -193,7 +193,6 @@ No. That is a fine collector, but with different aims:
 - Its tracing is [conservative](http://stackoverflow.com/questions/7629446/conservative-garbage-collector) and more global (touches memory beyond the actual GC allocations and roots, such as to discover roots conservatively).
 
 `deferred_heap` runs destructors, and the tracing is accurate (not conservative) and scoped to an individual granular heap.
-
 
 ## Is deferred_heap equivalent to a region?
 
@@ -261,7 +260,7 @@ I used exactly those names initially (just look at old checkins), but switched t
 
    - `construct()` is available via `deferred_allocator` only, and adds special sauce for handling `vector::pop_back` followed by `push_back`: A pending destructor is also run before constructing an object in a location for which the destructor is pending. This is the only situation where a destructor runs sooner than at `.collect()` time, and only happens when using an in-place constructing container like `std::vector<T, deferred_allocator<T>>` or  `std::deque<T, deferred_allocator<T>>`.
    
-   - Note: We have to assume that the container implementation is not malicious; as Bjarne Stroustrup famously puts it, we protect against Murphy, not Machiavelli. Having said that, to my knowledge, `deferred_allocator::construct()` is the only operation in gcpp that could be abused in a type-unsafe way, and then only via a buggy or malicious STL container implementation.
+   - Note: We have to assume that the container implementation is not malicious; as Bjarne Stroustrup famously puts it, we protect against Murphy, not Machiavelli. Having said that, to my knowledge, `deferred_allocator::construct()` is the only operation in gcpp that could be abused in a type-unsafe way, and then only via a buggy or malicious implementation of an STL container that performs in-place construction.
 
 - `container<T, deferred_allocator<T>>` iterators keep objects (not just memory) alive. This makes **dereferencing** an invalidated iterator type-safe, as well as memory-safe.
 
