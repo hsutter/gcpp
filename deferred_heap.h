@@ -456,10 +456,10 @@ namespace gcpp {
 		//	Thanks to Casey Carter and Jon Caves for helping get this incantation right.
 		//
 		template<class T> struct id { using type = T; };		// this is just to turn off
-		template<class T> using id_t = typename id<T>::type;	// type deduction for TT 
+		template<class T> using id_t = typename id<T>::type;	// type deduction for TT and ...
 
-		template<class U, class TT = T>
-		deferred_ptr<U> ptr_to(U id_t<TT>::*pU) {
+		template<class U, class TT = T>	// .. TT itself is a workaround for that we can't just
+		deferred_ptr<U> ptr_to(U id_t<TT>::*pU) {	// write T:: here because <<C++ arcana>>
 			Expects(get_heap() && get() && "can't ptr_to on an unattached or null pointer");
 			return{ get_heap(), &(get()->*pU) };
 		}
