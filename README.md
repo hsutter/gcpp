@@ -8,7 +8,7 @@ gcpp is a personal project to try an experiment: Can we take the deferred and un
 
 This is a demo of a potential additional fallback option for the rare cases where `unique_ptr` and `shared_ptr` aren't quite enough, notably when you have objects that refer to each other in local owning cycles, or when you need to defer destructor execution to meet real-time deadlines or to bound destructor stack cost. The goal is to illustrate ideas that others can draw from, that you may find useful even if you never use types like the ones below but just continue to use existing smart pointers and write your destructor-deferral and tracing code by hand.
 
-Disclaimers: This is a demo, not a production quality library. As of this writing, I have only tried it on one compiler and STL implementation, Visual Studio 2015 Update 3 (`deferred_allocator` does not work on Update 2 which had only partial support for C++11 allocators with fancy pointers); if you have success with others, please report it by opening an Issue to update this README. See also the FAQ ["So there are no disadvantages?"](#so-there-are-no-disadvantages). And please see the [Acknowledgments](#acknowledgments).
+Disclaimers: This is a demo, not a production quality library. As of this writing, I have only tried it on one compiler and STL implementation, Visual Studio 2015 Update 3 (`deferred_allocator` does not work on Update 2 which had only partial support for C++11 allocators with fancy pointers); if you have success with others, please report it by opening an Issue to update this README. See also the FAQ ["So there are no disadvantages?"](#q-so-deferred_heap-and-deferred_ptr-have-no-disadvantages). And please see the [Acknowledgments](#acknowledgments).
 
 ## Overview
 
@@ -20,7 +20,7 @@ A `deferred_heap` owns a region of memory containing objects that can be safely 
 
 - `.collect()` is called explicitly by default and traces this local heap in isolation; it never traces outside this heap and its roots, including that it does not touch the memory owned by any other `deferred_heap`s or any other program data structures. Any unreachable objects will have their deferred destructors run before their memory is deallocated. Cycles of `deferred_ptr`s within the same heap are destroyed when the cycle is no longer reachable.
 
-- `~deferred_heap()` runs any remaining deferred destructors and resets any `deferred_ptr`s that outlive this heap to null, then releases its memory all at once [like a region](#is-deferred_heap-equivalent-to-a-region).
+- `~deferred_heap()` runs any remaining deferred destructors and resets any `deferred_ptr`s that outlive this heap to null, then releases its memory all at once [like a region](#q-is-deferred_heap-equivalent-to-region-based-memory-management).
 
 Because `.collect()` and the destructor are explicit, the program can choose when (at a convenient time) and where (e.g., on what thread or processor) to run destructors.
 
@@ -161,11 +161,11 @@ The following summarizes the best practices we should already teach for expressi
 
 # FAQs
 
-## Is this [garbage collection](https://en.wikipedia.org/wiki/Garbage_collection_(computer_science))?
+## Q: "Is this [garbage collection](https://en.wikipedia.org/wiki/Garbage_collection_(computer_science))?"
 
 Of course, and remember that so is reference counting (e.g., `shared_ptr`).
 
-## I meant, is this just [tracing garbage collection](https://en.wikipedia.org/wiki/Tracing_garbage_collection) (tracing GC)?
+## Q: "I meant, is this just [tracing garbage collection](https://en.wikipedia.org/wiki/Tracing_garbage_collection) (tracing GC)?"
 
 Not the tracing GC most people are familiar with.
 
@@ -184,7 +184,7 @@ The other important difference is that **`deferred_heap` meets C++'s zero-overhe
 - `deferred_heap` is intended to be used tactically as another fallback in situations where options like `unique_ptr` and `shared_ptr` are insufficient, and even then in a granular way with a distinct `deferred_heap` within a class (or at most module). You don't pay for what you don't use: If you never perform a deferred allocation then there is zero cost, and if you do perform some deferred allocation then the cost is always proportional to the amount of deferred allocation you do. Tracing is performed only within each individual `deferred_heap` bubble, and cycles of `deferred_ptr`s must stay within the same heap in order to be collected. (Yes, it's possible to instantiate and share a global `deferred_heap`, but that isn't the way I intend this to be used, and certainly the current demo implementation isn't intended to scale well to millions of pointers.)
 
 
-## Is this related/similar to the [Boehm collector](http://www.hboehm.info/gc/)?
+## Q: "Is this related/similar to the [Boehm collector](http://www.hboehm.info/gc/)?"
 
 No. That is a fine collector, but with different aims:
 
@@ -194,9 +194,9 @@ No. That is a fine collector, but with different aims:
 
 `deferred_heap` runs destructors, and the tracing is accurate (not conservative) and scoped to an individual granular heap.
 
-## Is deferred_heap equivalent to a region?
+## Q: "Is deferred_heap equivalent to [region-based memory management](https://en.wikipedia.org/wiki/Region-based_memory_management)?"
 
-It's a strict superset of [region-based memory management](https://en.wikipedia.org/wiki/Region-based_memory_management).
+It's a strict superset of regions.
 
 The key idea of a region is to efficiently release the region's memory in one shot when the region is destroyed, with deallocate-at-once semantics. `deferred_heap` does that, but goes further in three ways:
 
@@ -211,7 +211,7 @@ The only work performed in the `deferred_heap` destructor is to run pending dest
 One way to view `deferred_heap` is as a candidate approach for unifying tracing GC and regions. And destructors, most importantly of all.
 
 
-## So there are no disadvantages?
+## Q: "So deferred_heap and deferred_ptr have no disadvantages?"
 
 Of course there are disadvantages to this approach, especially in this demo implementation.
 
@@ -220,7 +220,7 @@ Of course there are disadvantages to this approach, especially in this demo impl
 - The current implementation is not production-quality. In particular, it's a pure library solution that requires no compiler support, it's single-threaded, it dynamically registers every `deferred_ptr`, and it doesn't try to optimize its marking algorithm. The GC literature and experience is full of ways to make this faster; for example, a compiler optimizer that is aware of `deferred_ptr` could optimize away all registration of stack-based `deferred_ptr`s by generating stack maps. The important thing is to provide a distinct `deferred_ptr` type so we know all the pointers to trace, and that permits a lot of implementation leeway and optimization. (GC experts, feel free to plug in your favorite real GC implementation under the `deferred_heap` interface and let us know how it goes. I've factored out the destructor tracking to keep it separate from the heap implementation, to make it easier to plug in just the GC memory and tracing management implementation.)
 
 
-## Why create another smart pointer? another allocator?
+## Q: "Why create another smart pointer? another allocator?"
 
 Because that's how we roll in C++.
 
@@ -233,7 +233,7 @@ gcpp aims to continue C++'s long tradition of being a great language for buildin
 - In gcpp, `deferred_heap` and `deferred_ptr` take a stab at how we might automate managing the lifetime of a **group of related shared heap objects** that (a) may contain cycles and/or (b) needs deterministic pointer manipulation space and time cost. The goal is that using them be usually as efficient as (and easier and more robust than) managing ownership and writing custom tracing logic by hand to discover and perform destruction of unreachable objects. Because reachability is a property of the whole group, not of a single object or subgroup, an abstraction that owns the whole group is needed. Consider this, or write similar logic by hand, when you have a situation where neither `unique_ptr` nor `shared_ptr` are sufficient.
 
 
-## Would "gc_heap" and "gc_ptr" be better names?
+## Q: "Would gc_heap and gc_ptr be better names?"
 
 I don't think so.
 
