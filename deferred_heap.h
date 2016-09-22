@@ -706,7 +706,7 @@ namespace gcpp {
 	{
 		//	Note: setting this flag lets us skip worrying about reentrancy;
 		//	a destructor may not allocate a new object (which would try to
-		//	enregister and therefore change our data structurs)
+		//	enregister and therefore change our data structures)
 		is_destroying = true;
 
 		//	when destroying the arena, detach all pointers and run all destructors 

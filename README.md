@@ -216,9 +216,9 @@ One way to view `deferred_heap` is as a candidate approach for unifying tracing 
 
 Of course there are disadvantages to this approach, especially in this demo implementation.
 
-- It does more work and therefore has more overhead than `unique_ptr` or `shared_ptr`. Prefer `unique_ptr` or `shared_ptr` in that order where possible, as usual; see [the guidance above](#object-lifetime-guidance). You should be using them much more frequently than `deferred_ptr`.
+- It moves work to different places, and does more total work and therefore has more total overhead than `unique_ptr` or `shared_ptr`. Prefer `unique_ptr` or `shared_ptr` in that order where possible, as usual; see [the guidance above](#object-lifetime-guidance). You should be using them much more frequently than `deferred_ptr`.
 
-- The current implementation is not production-quality. In particular, it's a pure library solution that requires no compiler support, it's single-threaded, it registers every `deferred_ptr`, and it doesn't try to optimize its marking algorithm. The GC literature and experience is full of ways to make this faster; for example, a compiler optimizer that is aware of `deferred_ptr` could optimize away all registration of stack-based `deferred_ptr`s by generating stack maps. (GC experts, feel free to plug in your favorite real GC implementation under the `deferred_heap` interface and let us know how it goes. I've factored out the destructor tracking to keep it separate from the heap implementation, to make it easier to plug in just the GC memory and tracing management implementation.)
+- The current implementation is not production-quality. In particular, it's a pure library solution that requires no compiler support, it's single-threaded, it dynamically registers every `deferred_ptr`, and it doesn't try to optimize its marking algorithm. The GC literature and experience is full of ways to make this faster; for example, a compiler optimizer that is aware of `deferred_ptr` could optimize away all registration of stack-based `deferred_ptr`s by generating stack maps. The important thing is to provide a distinct `deferred_ptr` type so we know all the pointers to trace, and that permits a lot of implementation leeway and optimization. (GC experts, feel free to plug in your favorite real GC implementation under the `deferred_heap` interface and let us know how it goes. I've factored out the destructor tracking to keep it separate from the heap implementation, to make it easier to plug in just the GC memory and tracing management implementation.)
 
 
 ## Why create another smart pointer? another allocator?
@@ -284,6 +284,6 @@ This personal project would be considerably weaker without input from a number o
 
 - Thanks to Casey Carter, Jonathan Caves, Gabriel Dos Reis, Howard Hinnant, Stephan T. Lavavej, and Neil MacIntosh for their feedback on the code and/or help with various detailed C++ language and standard library questions. These folks are world-class experts in the C++ language, the C++ standard (and soon-to-be standard) library, and/or the compile-time analysis of both. 
 
-- Thanks to Pavel Curtis, Daniel Frampton, Kathryn S McKinley, and Mads Torgersen for their review and suggestions regarding the tracing GC parts. These folks grok garbage collection of all varieties as well as programming language design, and their deep experience has been invaluable.
+- Thanks to Hans Boehm, Pavel Curtis, Daniel Frampton, Kathryn S McKinley, and Mads Torgersen for their review and suggestions regarding the tracing GC parts. These folks grok garbage collection of all varieties as well as programming language design, and their deep experience has been invaluable.
 
 Thanks, very much. 

@@ -263,6 +263,11 @@ void test_deferred_allocator_set() {
 
 void test_deferred_allocator_vector() {
 	deferred_heap heap;
+
+	//	Note: For the following line to make any difference you need to exhaust
+	//	at least the first page the heap owns. To force that, either artificially
+	//	decrease the page size to about 80 bytes in dhpage::dhpage (I usually
+	//	change 8192 to 81), or increase the amount of work below.
 	heap.set_collect_before_expand(true);
 
 	{
