@@ -30,6 +30,7 @@
 #include <memory>
 
 namespace gcpp {
+	template<class T> class deferred_ptr;
 
 	//  destructor contains a pointer and type-correct-but-erased dtor call.
 	//  (Happily, a noncapturing lambda decays to a function pointer, which
@@ -441,12 +442,12 @@ namespace gcpp {
 
 		//	Copying with conversions (base -> derived, non-const -> const).
 		//
-		template<class U, class = typename enable_if<is_convertible<U*, T*>::value, void>::type>
+		template<class U, class = typename std::enable_if<std::is_convertible<U*, T*>::value, void>::type>
 		deferred_ptr(const deferred_ptr<U>& that)
 			: deferred_ptr_void(that)
 		{ }
 
-		template<class U, class = typename enable_if<is_convertible<U*, T*>::value, void>::type>
+		template<class U, class = typename std::enable_if<std::is_convertible<U*, T*>::value, void>::type>
 		deferred_ptr& operator=(const deferred_ptr<U>& that) noexcept {
 			deferred_ptr_void::operator=(that);
 			return *this;
@@ -455,8 +456,8 @@ namespace gcpp {
 		//	Aliasing conversion: Type-safely forming a pointer to data member of T of type U.
 		//	Thanks to Casey Carter and Jon Caves for helping get this incantation right.
 		//
-		template<class T> struct id { using type = T; };		// this is just to turn off
-		template<class T> using id_t = typename id<T>::type;	// type deduction for TT and ...
+		template<class U> struct id { using type = U; };		// this is just to turn off
+		template<class U> using id_t = typename id<U>::type;	// type deduction for TT and ...
 
 		template<class U, class TT = T>	// .. TT itself is a workaround for that we can't just
 		deferred_ptr<U> ptr_to(U id_t<TT>::*pU) {	// write T:: here because <<C++ arcana>>
@@ -470,7 +471,9 @@ namespace gcpp {
 			return (T*)deferred_ptr_void::get();
 		}
 
-		T& operator*() const noexcept {
+		explicit operator bool() const { return deferred_ptr_void::get() != nullptr; }
+
+		std::add_lvalue_reference_t<T> operator*() const noexcept {
 			//	This contract is currently disabled because MSVC's std::vector
 			//	implementation relies on being able to innocuously dereference
 			//	any pointer (even null) briefly just to take the pointee's
@@ -485,14 +488,13 @@ namespace gcpp {
 			return get();
 		}
 
-		template<class T>
-		static deferred_ptr<T> pointer_to(T& t) {
-			return deferred_ptr<T>(&t);
+		template<class U>
+		static deferred_ptr<U> pointer_to(U& u) {
+			return deferred_ptr<U>(&u);
 		}
 
 		int compare3(const deferred_ptr& that) const { return get() < that.get() ? -1 : get() == that.get() ? 0 : 1; };
 		GCPP_TOTALLY_ORDERED_COMPARISON(deferred_ptr);	// maybe someday this will be default
-													
 													
 		//	Checked pointer arithmetic
 		//
@@ -568,7 +570,7 @@ namespace gcpp {
 			return *this + -offset;
 		}
 
-		T& operator[](size_t offset) noexcept {
+		std::add_lvalue_reference_t<T> operator[](size_t offset) noexcept {
 #ifndef NDEBUG
 			//	In debug mode, perform the arithmetic checks by creating a temporary deferred_ptr
 			auto tmp = *this;
@@ -832,7 +834,7 @@ namespace gcpp {
 			//	pass along the type hint for size/alignment
 			pages.emplace_back((T*)nullptr, n, this);
 			p.first = &pages.back();	// Future: just use emplace_back's return value, in a C++17 STL
-			p = { p.first, p.first->page.allocate<T>(n) };
+			p = { p.first, p.first->page.template allocate<T>(n) };
 		}
 
 		Expects(p.second != nullptr && "failed to allocate but didn't throw an exception");

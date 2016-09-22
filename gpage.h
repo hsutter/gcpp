@@ -196,7 +196,7 @@ namespace gcpp {
 		//	if we didn't find anything, return null
 		if (i >= end) {
 			//	optimization: remember that we couldn't satisfy this request size
-			current_known_request_bound = min(current_known_request_bound, bytes_needed - 1);
+			current_known_request_bound = std::min(current_known_request_bound, bytes_needed - 1);
 			return nullptr;
 		}
 
