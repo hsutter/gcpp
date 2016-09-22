@@ -237,7 +237,7 @@ gcpp aims to continue C++'s long tradition of being a great language for buildin
 
 I don't think so.
 
-I used exactly those names initially (just look at old checkins), but switched to "deferred" for two major reasons, for large values of two:
+I used those names initially, but switched to "deferred" for two major reasons, and one minor reason:
 
 1. "Deferred" emphasizes what I think is the most important property, namely that we're talking about real objects with real destructors, just the destructors are deferred; that's even more important than the tracing collection part.
 
