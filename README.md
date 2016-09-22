@@ -8,7 +8,7 @@ gcpp is a personal project to try an experiment: Can we take the deferred and un
 
 This is a demo of a potential additional fallback option for the rare cases where `unique_ptr` and `shared_ptr` aren't quite enough, notably when you have objects that refer to each other in local owning cycles, or when you need to defer destructor execution to meet real-time deadlines or to bound destructor stack cost. The goal is to illustrate ideas that others can draw from, that you may find useful even if you never use types like the ones below but just continue to use existing smart pointers and write your destructor-deferral and tracing code by hand.
 
-Disclaimers: This is a demo, not a production quality library. As of this writing, I have only tried it on one compiler and STL implementation, Visual Studio 2015 Update 3 (`deferred_allocator` does not work on Update 2 which had only partial support for C++11 allocators with fancy pointers); if you have success with others, please report it by opening an Issue to update this README. See also the FAQ ["So there are no disadvantages?"](#q-so-deferred_heap-and-deferred_ptr-have-no-disadvantages). And please see the [Acknowledgments](#acknowledgments).
+Disclaimers: This is a demo, not a production quality library. As of this writing, I have only tried it on one compiler and STL implementation, Visual Studio 2015 Update 3 (`deferred_allocator` does not work on Update 2 which had only partial support for C++11 allocators with fancy pointers); if you have success with others, please report it by opening an Issue to update this README. See also the FAQ ["So deferred_heap and deferred_ptr have no disadvantages?"](#q-so-deferred_heap-and-deferred_ptr-have-no-disadvantages). And please see the [Acknowledgments](#acknowledgments).
 
 ## Overview
 
@@ -244,6 +244,17 @@ I used exactly those names initially (just look at old checkins), but switched t
 1. "GC" could create confusion with the mainstream notion of tracing GC. This is not like GC in other major languages, as I explained above.
 
 1. "GC" is slightly inaccurate technically, because this isn't really adding GC to C++ inasmuch as C++11 and later already has GC because reference counting is one of the major forms of GC.
+
+
+## Q: "Are there other potential uses where this would be better than current smart pointers?"
+
+Yes. 
+
+In particular, a lock-free single-width-compare-and-swap `atomic_deferred_ptr<T>` should be easy to write. (Of course, before trying that we'd first make `deferred_heap` itself thread-safe as a baseline.) It's well known that tracing GC makes it easy to avoid [ABA problems](https://en.wikipedia.org/wiki/ABA_problem) and traversing-while-erasing concurrency problems for lock-free data structures, without resorting to more complex approaches like [hazard pointers](https://en.wikipedia.org/wiki/Hazard_pointer). The `std::atomic_shared_ptr` that I [proposed](http://www.open-std.org/jtc1/sc22/wg21/docs/papers/2014/n4162.pdf) and was adopted in C++17 solves these problems too (see [Anthony Williams' nice writeup](https://www.justsoftwaresolutions.co.uk/threading/why-do-we-need-atomic_shared_ptr.html)), but it has two limitations: first, like all `shared_ptr`s it doesn't deal with cyclic data structures; and second, the [only current lock-free implementation](http://www.stdthread.co.uk/doc/headers/experimental_atomic/atomic_shared_ptr.html) (also by Anthony Williams; thanks again Anthony!) requires double-width compare-and-swap (DCAS), which is not available on all platform targets. An `atomic_deferred_ptr` should solve all four of these problems and limitations.
+
+Even the current implementation, which uses double-width pointers, can pretty easily be made atomic without DCAS as follows: The current implementation is double width because it stores a back pointer to the `deferred_heap`, specifically so that we can prevent changing the heap that a `deferred_ptr` points into -- which means that the `deferred_heap*` is `const` once it is set to non-null. [The only exception is that the current implementation resets the heap pointer to null when the heap goes away, but that's easy to change by leaving it alone or pointing to a sentinel value.] That means that the implementation of `atomic_deferred_ptr<T>::compare_exchange(that)` can simply do single atomic loads of `*this`’s and `that`’s `deferred_heap*`s to compare them and enforce that they’re pointing into the same heap, and if they’re the same then do a normal single-width `compare_exchange` on the `T*`. -- And `deferred_ptr` doesn't need to be double width, there are other implementation choices that would make it just a `T*` and trivially copyable.
+
+Even in the worst case of a naïve non-concurrent collector that stops the world while collecting, this should be sufficient to make using `deferred_ptr`s completely lock-free "in epochs" meaning in between collections, and each data structure can control when collection of its private mini-heap happens and therefore control the epoch boundaries. And I expect that a concurrent collector written by a real GC implementer (not me) could do better than the baseline "lock-free in epochs."
 
 
 # Implementation notes
