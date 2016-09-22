@@ -226,6 +226,11 @@ gcpp aims to continue C++'s long tradition of being a great language for buildin
 - In gcpp, `deferred_heap` and `deferred_ptr` take a stab at how we might automate managing the lifetime of a **group of related shared heap objects** that (a) may contain cycles and/or (b) needs deterministic pointer manipulation space and time cost. The goal is that using them be usually as efficient as (and easier and more robust than) managing ownership and writing custom tracing logic by hand to discover and perform destruction of unreachable objects. Because reachability is a property of the whole group, not of a single object or subgroup, an abstraction that owns the whole group is needed. Consider this, or write similar logic by hand, when you have a situation where neither `unique_ptr` nor `shared_ptr` are sufficient.
 
 
+## Would "gc_heap" and "gc_ptr" be better names?
+
+I used those initially, but switched to "deferred" for two major reasons. First, "deferred" emphasizes what I think is the most important property, namely that we're talking about real objects with real destructors, just the destructors are deferred; that's even more important than the tracing collection part. Second, "GC" could create confusion with the mainstream notion of tracing GC (this is not like GC in other major languages) and it's slightly inaccurate technically (this isn't adding GC to C++ inasmuch as C++11 and later already has GC because reference counting is one of the major forms of GC).
+
+
 # Implementation notes
 
 ## deferred_allocator
