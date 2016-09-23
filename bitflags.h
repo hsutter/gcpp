@@ -33,15 +33,13 @@ namespace gcpp {
 	//----------------------------------------------------------------------------
 
 	class bitflags {
-		static constexpr byte ALL_TRUE = byte(0xFF), ALL_FALSE = byte(0x00);
-
 		const int size;
 		std::vector<byte> bits;
 
 	public:
 		bitflags(int bits, bool value)
 			: size{ bits }
-			, bits(1 + size / sizeof(byte), value ? ALL_TRUE : ALL_FALSE)
+			, bits(1 + size / sizeof(byte), value ? byte(0xFF) : byte(0x00))
 		{ 
 			Expects(bits > 0 && "#bits must be positive");
 		}
@@ -68,7 +66,7 @@ namespace gcpp {
 		//	Set all flags to value
 		//
 		void set_all(bool value) {
-			std::fill(begin(bits), end(bits), value ? ALL_TRUE : ALL_FALSE);
+			std::fill(begin(bits), end(bits), value ? byte(0xFF) : byte(0x00));
 		}
 
 		//	Set all flags in positions [from,to) to value
