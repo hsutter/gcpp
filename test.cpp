@@ -227,6 +227,7 @@ void test_deferred_allocator() {
 //----------------------------------------------------------------------------
 
 void test_deferred_allocator_set() {
+#ifndef __GNUC__
 	deferred_heap heap;
 
 	auto s = deferred_set<widget>(heap);
@@ -252,6 +253,7 @@ void test_deferred_allocator_set() {
 
 	heap.collect();
 	heap.debug_print();	// now the erased node is deleted (including correctly destroyed)
+#endif
 }
 
 
@@ -325,6 +327,7 @@ void time_set(Set s, const char* sz, int N) {
 }
 
 void time_deferred_allocator_set() {
+#ifndef __GNUC__
 	deferred_heap heap;
 	auto s = set<int>();
 	auto s2 = deferred_set<int>(heap);
@@ -336,6 +339,7 @@ void time_deferred_allocator_set() {
 		//heap.collect();
 		//heap.debug_print();
 	}
+#endif
 }
 
 template<class Vec>
