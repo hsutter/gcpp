@@ -74,8 +74,8 @@ namespace gcpp {
 		template<class T>
 		bool is_stored(gsl::not_null<T*> p) noexcept {
 			return std::is_trivially_destructible<T>::value
-				|| std::find_if(dtors.begin(), dtors.end(), 
-					[=](auto x) { return x.p == (byte*)p.get(); }) != dtors.end();
+				|| std::any_of(dtors.begin(), dtors.end(),
+					[=](auto x) { return x.p == (byte*)p.get(); });
 		}
 
 		//	Run all the destructors and clear the list
