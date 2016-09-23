@@ -414,6 +414,13 @@ namespace gcpp {
 		friend class deferred_ptr;
 
 	public:
+		// iterator traits
+		using value_type         = T;
+		using pointer            = deferred_ptr<value_type>;
+		using reference          = std::add_lvalue_reference_t<T>;
+		using difference_type    = ptrdiff_t;
+		using iterator_category  = std::random_access_iterator_tag;
+
 		//	Default and null construction. (Note we do not use a defaulted
 		//	T* parameter, so that the T* overload can be private and the
 		//	nullptr overload can be public.)
