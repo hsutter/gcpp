@@ -19,6 +19,11 @@
 #ifndef GCPP_UTIL
 #define GCPP_UTIL
 
+#ifdef _MSC_VER
+//	This project is not currently compatible with MSVC's STL's iterator proxies.
+#define _ITERATOR_DEBUG_LEVEL 0
+#endif
+
 //	This project requires GSL, see: https://github.com/microsoft/gsl
 #include <gsl/gsl>
 
@@ -27,11 +32,6 @@ namespace gcpp {
 	using byte = gsl::byte;
 
 }
-
-#ifdef _MSC_VER
-//	This project is not currently compatible with MSVC's STL's iterator proxies.
-#define _ITERATOR_DEBUG_LEVEL 0
-#endif
 
 //	This is the right way to do totally ordered comparisons
 //	TODO propose again in ISO (in the language, not as a macro of course)
