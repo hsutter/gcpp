@@ -1,18 +1,18 @@
 
-/////////////////////////////////////////////////////////////////////////////// 
-// 
-// Copyright (c) 2016 Herb Sutter. All rights reserved. 
-// 
-// This code is licensed under the MIT License (MIT). 
-// 
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN 
-// THE SOFTWARE. 
-// 
+///////////////////////////////////////////////////////////////////////////////
+//
+// Copyright (c) 2016 Herb Sutter. All rights reserved.
+//
+// This code is licensed under the MIT License (MIT).
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+//
 ///////////////////////////////////////////////////////////////////////////////
 
 
@@ -31,6 +31,28 @@
 
 namespace gcpp {
 	template<class T> class deferred_ptr;
+
+	//  Copy and remove elements that satisfy pred from [first, last) into out.
+	template<class BidirectionalIterator, class OutputIterator, class Predicate>
+	std::pair<BidirectionalIterator, OutputIterator>
+	unstable_remove_copy_if(BidirectionalIterator first, BidirectionalIterator last,
+		OutputIterator out, Predicate pred)
+	{
+		for (;;) {
+			first = std::find_if(first, last, pred);
+			if (first == last) {
+				break;
+			}
+			// *first satisfies pred. Move it out of the sequence...
+			*out++ = std::move(*first);
+			// ...and replace with the last element of the sequence.
+			if (first == --last) {
+				break;
+			}
+			*first = std::move(*last);
+		}
+		return {first, out};
+	}
 
 	//  destructor contains a pointer and type-correct-but-erased dtor call.
 	//  (Happily, a noncapturing lambda decays to a function pointer, which
@@ -62,7 +84,7 @@ namespace gcpp {
 				//	destructor from the middle
 				for (auto& t : p) {
 					dtors.push_back({
-						reinterpret_cast<const byte*>(&t),		// address
+						reinterpret_cast<const byte*>(std::addressof(t)),		// address
 						[](const void* x) { reinterpret_cast<const T*>(x)->~T(); }
 					});											// dtor to invoke
 				}
@@ -72,7 +94,7 @@ namespace gcpp {
 		//	Inquire whether there is a destructor registered for p
 		//
 		template<class T>
-		bool is_stored(gsl::not_null<T*> p) noexcept {
+		bool is_stored(gsl::not_null<T*> p) const noexcept {
 			return std::is_trivially_destructible<T>::value
 				|| std::any_of(dtors.begin(), dtors.end(),
 					[=](auto x) { return x.p == (byte*)p.get(); });
@@ -87,43 +109,38 @@ namespace gcpp {
 			dtors.clear();
 		}
 
-		//	Runn all the destructors for objects in [begin,end)
+		//	Run all the destructors for objects in [begin,end)
 		//
 		bool run(gsl::span<byte> range) {
 			if (range.size() == 0)
 				return false;
 
-			bool ret = false;
-
 			//	for reentrancy safety, we'll take a local copy of destructors to be run
 			//
-			//	first, move any destructors for objects in this range to a local list...
+			//	move any destructors for objects in this range to a local list...
 			//
-			std::vector<destructor> to_destroy;
-			for (auto it = dtors.begin(); it != dtors.end(); /*--*/) {
-				//	<= and -- to avoid dereferencing a past-the-end iterator
-				if (&*range.begin() <= it->p && it->p <= &*--range.end()) {
-					to_destroy.push_back(*it);
-					it = dtors.erase(it);
-					ret = true;
-				}
-				else {
-					++it;
-				}
-			}
+			struct cleanup_t {
+				std::vector<destructor> to_destroy;
 
-			//	... then, execute them now that we're done using private state
-			//
-			for (auto& d : to_destroy) {
-				//	=====================================================================
-				//  === BEGIN REENTRANCY-SAFE: ensure no in-progress use of private state
-				d.destroy(d.p);	// call object's destructor
-				//  === END REENTRANCY-SAFE: reload any stored copies of private state
-				//	=====================================================================
-			}
+				// ensure the locally saved destructors are run even if an exception is thrown
+				~cleanup_t() {
+					for (auto& d : to_destroy) {
+						//	=====================================================================
+						//  === BEGIN REENTRANCY-SAFE: ensure no in-progress use of private state
+						d.destroy(d.p);	// call object's destructor
+						//  === END REENTRANCY-SAFE: reload any stored copies of private state
+						//	=====================================================================
+					}
+				}
+			} cleanup;
 
-			//	else there wasn't a nontrivial destructor
-			return ret;
+			auto const lo = &*range.begin(), hi = lo + range.size();
+			auto it = unstable_remove_copy_if(
+				dtors.begin(), dtors.end(), std::back_inserter(cleanup.to_destroy),
+				[=](destructor const& dtor) { return lo <= dtor.p && dtor.p < hi; }).first;
+			dtors.erase(it, dtors.end());
+
+			return !cleanup.to_destroy.empty();
 		}
 
 		void debug_print() const;
@@ -185,7 +202,7 @@ namespace gcpp {
 			//	just statically prevent cross-assignment and statically identify the
 			//	heaps, which lets you have trivially copyable deferred_ptrs and no
 			//	run-time overhead for deferred_ptr space and assignment. I felt that
-			//	explaining static heap tagging would be a distraction in the initial 
+			//	explaining static heap tagging would be a distraction in the initial
 			//	presentation from the central concepts that are actually important.
 			deferred_heap* myheap;
 			void* p;
@@ -279,7 +296,7 @@ namespace gcpp {
 			//
 			template<class Hint>
 			dhpage(const Hint* /*--*/, size_t n, deferred_heap* heap)
-				: page{ std::max<size_t>(sizeof(Hint) * n * 3, 8192 /*good general default*/), 
+				: page{ std::max<size_t>(sizeof(Hint) * n * 3, 8192 /*good general default*/),
 						std::max<size_t>(sizeof(Hint), 4) }
 				, live_starts{ page.locations(), false }
 				, myheap{ heap }
@@ -355,7 +372,7 @@ namespace gcpp {
 			dhpage* page = nullptr;
 			gpage::contains_info_ret info;
 		};
-		template<class T> 
+		template<class T>
 		find_dhpage_info_ret find_dhpage_info(T* p) noexcept;
 
 		template<class T>
@@ -364,15 +381,15 @@ namespace gcpp {
 		template<class T>
 		deferred_ptr<T> allocate(int n = 1);
 
-		template<class T, class ...Args> 
+		template<class T, class ...Args>
 		void construct(gsl::not_null<T*> p, Args&& ...args);
 
-		template<class T> 
+		template<class T>
 		void construct_array(gsl::not_null<T*> p, int n);
 
-		template<class T> 
+		template<class T>
 		void destroy(gsl::not_null<T*> p) noexcept;
-		
+
 		bool destroy_objects(gsl::span<byte> range);
 
 		//------------------------------------------------------------------------
@@ -502,7 +519,7 @@ namespace gcpp {
 
 		int compare3(const deferred_ptr& that) const { return get() < that.get() ? -1 : get() == that.get() ? 0 : 1; };
 		GCPP_TOTALLY_ORDERED_COMPARISON(deferred_ptr);	// maybe someday this will be default
-													
+
 		//	Checked pointer arithmetic
 		//
 		//	Future: This is checked in debug mode, but it might be better to split off
@@ -542,7 +559,7 @@ namespace gcpp {
 				//	otherwise this and temp must point into the same allocation
 				//	which is covered for arrays by the extra byte we allocated
 				||	(
-					this_info.info.start_location == temp_info.info.start_location 
+					this_info.info.start_location == temp_info.info.start_location
 					&& temp_info.info.found > gpage::in_range_unallocated)
 					)
 				&& "bad deferred_ptr arithmetic: attempt to go outside the allocation");
@@ -581,7 +598,7 @@ namespace gcpp {
 #ifndef NDEBUG
 			//	In debug mode, perform the arithmetic checks by creating a temporary deferred_ptr
 			auto tmp = *this;
-			tmp += offset;	
+			tmp += offset;
 			return *tmp;
 #else
 			//	In release mode, don't enregister/deregister a temnporary deferred_ptr
@@ -694,12 +711,12 @@ namespace gcpp {
 		//	Accessors.
 		//
 		void* get() const noexcept {
-			return deferred_ptr_void::get(); 
+			return deferred_ptr_void::get();
 		}
 
 		void* operator->() const noexcept {
-			Expects(get() && "attempt to dereference null"); 
-			return get(); 
+			Expects(get() && "attempt to dereference null");
+			return get();
 		}
 	};
 
@@ -711,14 +728,14 @@ namespace gcpp {
 	//----------------------------------------------------------------------------
 	//
 	inline
-	deferred_heap::~deferred_heap() 
+	deferred_heap::~deferred_heap()
 	{
 		//	Note: setting this flag lets us skip worrying about reentrancy;
 		//	a destructor may not allocate a new object (which would try to
 		//	enregister and therefore change our data structures)
 		is_destroying = true;
 
-		//	when destroying the arena, detach all pointers and run all destructors 
+		//	when destroying the arena, detach all pointers and run all destructors
 		//
 		for (auto& p : roots) {
 			const_cast<deferred_ptr_void*>(p)->detach();
@@ -730,7 +747,7 @@ namespace gcpp {
 			}
 		}
 
-		//	this calls user code (the dtors), but no reentrancy care is 
+		//	this calls user code (the dtors), but no reentrancy care is
 		//	necessary per note above
 		dtors.run_all();
 	}
@@ -740,14 +757,14 @@ namespace gcpp {
 	inline
 	void deferred_heap::enregister(const deferred_ptr_void& p) {
 		//	append it to the back of the appropriate list
-		Expects(!is_destroying 
+		Expects(!is_destroying
 			&& "cannot allocate new objects on a deferred_heap that is being destroyed");
 		auto pg = find_dhpage_of(&p);
-		if (pg != nullptr) 
+		if (pg != nullptr)
 		{
 			pg->deferred_ptrs.push_back(&p);
 		}
-		else 
+		else
 		{
 			roots.insert(&p);
 		}
@@ -758,10 +775,10 @@ namespace gcpp {
 	inline
 	void deferred_heap::deregister(const deferred_ptr_void& p) {
 		//	no need to actually deregister if we're tearing down this deferred_heap
-		if (is_destroying) 
+		if (is_destroying)
 			return;
 
-		//	find its entry, starting from the back because it's more 
+		//	find its entry, starting from the back because it's more
 		//	likely to be there (newer objects tend to have shorter
 		//	lifetimes... all local deferred_ptrs fall into this category,
 		//	and especially temporary deferred_ptrs)
@@ -812,7 +829,7 @@ namespace gcpp {
 	}
 
 	template<class T>
-	std::pair<deferred_heap::dhpage*, byte*> 
+	std::pair<deferred_heap::dhpage*, byte*>
 	deferred_heap::allocate_from_existing_pages(int n) {
 		for (auto& pg : pages) {
 			auto p = pg.page.allocate<T>(n);
@@ -823,7 +840,7 @@ namespace gcpp {
 	}
 
 	template<class T>
-	deferred_ptr<T> deferred_heap::allocate(int n) 
+	deferred_ptr<T> deferred_heap::allocate(int n)
 	{
 		Expects(n > 0 && "cannot request an empty allocation");
 
@@ -975,7 +992,7 @@ namespace gcpp {
 		//	go through and clean up all the unreachable objects
 
 		//	3. reset all unreached deferred_ptrs to null
-		//	
+		//
 		//	Note: 'const deferred_ptr' is supported and behaves as const w.r.t. the
 		//	the program code; however, a deferred_ptr data member can become
 		//	spontaneously null *during object destruction* even if declared
@@ -1054,7 +1071,7 @@ namespace gcpp {
 	}
 
 	inline
-	void deferred_heap::debug_print() const 
+	void deferred_heap::debug_print() const
 	{
 		std::cout << "\n*** heap snapshot [" << (void*)this << "] ************************************************\n\n";
 		for (auto& pg : pages) {
@@ -1066,7 +1083,7 @@ namespace gcpp {
 			}
 			std::cout << "\n";
 		}
-		std::cout << "  roots.size() is " << roots.size() 
+		std::cout << "  roots.size() is " << roots.size()
 				  << ", load_factor is " << roots.load_factor() << "\n";
 		for (auto& p : roots) {
 			std::cout << "    " << (void*)p << " -> " << p->get() << "\n";
