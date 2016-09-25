@@ -95,7 +95,7 @@ namespace gcpp {
 		//	Test whether all bits are false
 		//
 		bool all_false() const noexcept {
-			auto ret = std::none_of(bits.get(), bits.get() + unit_count(size), [](unit u) { return u > 0; });
+			auto ret = std::none_of(bits.get(), bits.get() + unit_count(size), [](unit u) { return u != unit(0); });
 			return ret;
 		}
 
