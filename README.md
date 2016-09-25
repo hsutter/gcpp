@@ -36,7 +36,7 @@ It has the same functions as any normal C++ smart pointer, including derived-to-
 
    - It enforces that the otherwise-normal deferred destructor cannot access another deferred-destruction object that could possibly be destroyed in the same collection cycle (since it might already have been destroyed). This eliminates the "accessing a disposed/finalized object" class of bugs that is possible in environments like Java, .NET, and Go, and eliminates the "leaking cycles of objects that use finalizers" class of bugs that is possible in Go.
 
-   - It enforces that a destructor cannot "resurrect" another deferred-lifetime object (or itself) by storing a `deferred_ptr` to it somewhere that would make that object reachable again. This eliminates the "double dispose" class of bugs that is possible in environments like Java, .NET, and Go. It also closes as a second route to the "accessing a disposed/finalized object" class of bugs mentioned in the previous point.
+   - It enforces that a destructor cannot "resurrect" another deferred-lifetime object (or itself) by storing a `deferred_ptr` to it somewhere that would make that object reachable again. This eliminates the "double dispose" class of bugs that is possible in environments like Java, .NET, and Go. It also closes a second route to the "accessing a disposed/finalized object" class of bugs mentioned in the previous point.
 
 - Like `shared_ptr`'s aliasing constructor, `deferred_ptr` supports creating a smart pointer to a data member subobject of a deferred object. However, I'm currently doing it in a different way from `shared_ptr`. Whereas `shared_ptr`'s aliasing constructor can accept any pointer value and so isn't type-safe or memory-safe, `deferred_ptr<T>` instead provides a `.ptr_to<U>(U T::*)` function that takes a pointer to member of `T` and so type- and memory-safely guarantees at compile time that you can only use it to form a `deferred_ptr<U>` to a valid `U` subobject of a deferred `T` object via a valid `deferred_ptr<T>`.
 
@@ -135,7 +135,7 @@ Using `unique_ptr` and `shared_ptr` can be problematic in systems with constrain
 
 Today, systems with constrained stacks use similar techniques to those mentioned in #2 above, with similar limitations and tradeoffs.
 
-By design, `deferred_heap` runs deferred destructors iteratively, not recursively. Of course, an *individual* deferred object may still own a tree of resources that may use `shared_ptr`s and be freed recursively by default, but any two deferred objects are destroyed iteratively even if they referred to each other and their destructors never nest. This makes it a candidate for being appropriate for real-time code in situations where using `shared_ptr` may be problematic.
+By design, `deferred_heap` runs deferred destructors iteratively, not recursively. Of course, an *individual* deferred object may still own a tree of resources that may use `shared_ptr`s and be freed recursively by default, but any two deferred objects are destroyed iteratively even if they referred to each other, and their destructors never nest. This makes it a candidate for being appropriate for real-time code in situations where using `shared_ptr` may be problematic.
 
 ### (speculative) STL iterator safety 
 

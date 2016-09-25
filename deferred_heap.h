@@ -61,7 +61,7 @@ namespace gcpp {
 	//
 	class destructors {
 		struct destructor {
-			const byte* p;
+			const void* p;
 			void(*destroy)(const void*);
 		};
 		std::vector<destructor>	dtors;
@@ -84,9 +84,9 @@ namespace gcpp {
 				//	destructor from the middle
 				for (auto& t : p) {
 					dtors.push_back({
-						reinterpret_cast<const byte*>(std::addressof(t)),		// address
+						std::addressof(t),		// address
 						[](const void* x) { reinterpret_cast<const T*>(x)->~T(); }
-					});											// dtor to invoke
+					});							// dtor to invoke
 				}
 			}
 		}
@@ -97,7 +97,7 @@ namespace gcpp {
 		bool is_stored(gsl::not_null<T*> p) const noexcept {
 			return std::is_trivially_destructible<T>::value
 				|| std::any_of(dtors.begin(), dtors.end(),
-					[=](auto x) { return x.p == (byte*)p.get(); });
+					[=](auto x) { return x.p == p.get(); });
 		}
 
 		//	Run all the destructors and clear the list
