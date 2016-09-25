@@ -1059,6 +1059,15 @@ namespace gcpp {
 			}
 		}
 
+		//	5. finally, drop all now-unused pages
+		//
+		auto empty = pages.begin();
+		while ((empty = std::find_if(pages.begin(), pages.end(), 
+							[](const auto& pg) { return pg.page.is_empty(); }))
+				!= pages.end()) {
+			Ensures(empty->deferred_ptrs.empty() && "page with no allocations still has deferred_ptrs");
+			pages.erase(empty);
+		}
 	}
 
 	inline

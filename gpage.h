@@ -66,6 +66,12 @@ namespace gcpp {
 
 		const void* begin() const { return storage.get(); }
 
+		bool is_empty() const noexcept { 
+			auto ret = inuse.all_false();
+			Ensures(!ret || starts.all_false() && "gpage with no inuse still has starts");
+			return ret;
+		}
+
 		//	Construct a page with a given size and chunk size
 		//
 		gpage(std::size_t total_size_ = 1024, std::size_t min_alloc_ = 4);

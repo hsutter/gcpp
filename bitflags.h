@@ -45,31 +45,31 @@ namespace gcpp {
 
 		//  Return a unit with all bits set if "set" is true, or all bits cleared otherwise.
 		//
-		static constexpr unit all_bits(bool set) {
+		static constexpr unit all_bits(bool set) noexcept {
 			return set ? ~unit(0) : unit(0);
 		}
 
 		//  Return a mask that will select the bit at position from its unit
 		//
-		static unit bit_mask(int at) {
+		static unit bit_mask(int at) noexcept {
 			Expects(0 <= at && "position must be non-negative");
 			return unit(1) << (at % bits_per_unit);
 		}
 
 		//  Return the number of units needed to represent a number of bits
 		//
-		static int unit_count(int bit_count) {
+		static int unit_count(int bit_count) noexcept {
 			Expects(0 <= bit_count && "bit_count must be non-negative");
 			return (bit_count + bits_per_unit - 1) / bits_per_unit;
 		}
 
 		//  Get the unit that contains the bit at position
 		//
-		unit& bit_unit(int at) {
+		unit& bit_unit(int at) noexcept {
 			Expects(0 <= at && "position must be non-negative");
 			return bits[at / bits_per_unit];
 		}
-		const unit& bit_unit(int at) const {
+		const unit& bit_unit(int at) const noexcept {
 			Expects(0 <= at && "position must be non-negative");
 			return bits[at / bits_per_unit];
 		}
@@ -87,14 +87,21 @@ namespace gcpp {
 
 		//	Get flag value at position
 		//
-		bool get(int at) const {
+		bool get(int at) const noexcept {
 			Expects(0 <= at && at < size && "bitflags get() out of range");
 			return (bit_unit(at) & bit_mask(at)) != unit(0);
 		}
 
+		//	Test whether all bits are false
+		//
+		bool all_false() const noexcept {
+			auto ret = std::none_of(bits.get(), bits.get() + unit_count(size), [](unit u) { return u > 0; });
+			return ret;
+		}
+
 		//	Set flag value at position
 		//
-		void set(int at, bool value) {
+		void set(int at, bool value) noexcept {
 			Expects(0 <= at && at < size && "bitflags set() out of range");
 			if (value) {
 				bit_unit(at) |= bit_mask(at);
@@ -106,13 +113,13 @@ namespace gcpp {
 
 		//	Set all flags to value
 		//
-		void set_all(bool value) {
+		void set_all(bool value) noexcept {
 			std::fill_n(bits.get(), unit_count(size), all_bits(value));
 		}
 
 		//	Set all flags in positions [from,to) to value
 		//
-		void set(int from, int to, bool value) {
+		void set(int from, int to, bool value) noexcept {
 			if (from >= to) {
 				return;
 			}
@@ -120,9 +127,9 @@ namespace gcpp {
 			Expects(0 <= from && to <= size && "bitflags set() out of range");
 
 			const auto from_unit = from / bits_per_unit;
-			const auto from_mod = from % bits_per_unit;
-			const auto to_unit = to / bits_per_unit;
-			const auto to_mod = to % bits_per_unit;
+			const auto from_mod  = from % bits_per_unit;
+			const auto to_unit   = to   / bits_per_unit;
+			const auto to_mod    = to   % bits_per_unit;
 
 			const auto n_whole_units = to_unit - from_unit - 1;
 			auto data = bits.get() + from_unit;
