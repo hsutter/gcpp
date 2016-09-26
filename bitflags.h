@@ -95,9 +95,9 @@ namespace gcpp {
 		//	Test whether all bits are false
 		//
 		bool all_false() const noexcept {
-			auto test = [](unit u) { return u > unit(0); };
-			return std::none_of(bits.get(), bits.get() + unit_count(size) - 1, test)
-				&& !test(*(bits.get() + unit_count(size) - 1) & (bit_mask(size) - 1));
+			auto all_false = [](unit u) { return u == unit(0); };
+			return std::all_of(bits.get(), bits.get() + unit_count(size) - 1, all_false)
+				&& all_false(*(bits.get() + unit_count(size) - 1) & (bit_mask(size) - 1));
 		}
 
 		//	Set flag value at position
