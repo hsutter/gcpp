@@ -121,11 +121,11 @@ namespace gcpp {
 		//	Set all flags in positions [from,to) to value
 		//
 		void set(int from, int to, bool value) noexcept {
-			if (from >= to) {
+			Expects(0 <= from && from <= to && to <= size && "bitflags set() out of range");
+
+			if (from == to) {
 				return;
 			}
-
-			Expects(0 <= from && to <= size && "bitflags set() out of range");
 
 			const auto from_unit = from / bits_per_unit;
 			const auto from_mod  = from % bits_per_unit;
