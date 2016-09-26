@@ -78,7 +78,7 @@ namespace gcpp {
 		bitflags(int nbits, bool value)
 			: size{ nbits }
 		{
-			Expects(nbits >= 0 && "#bits must be non-negative");
+			Expects(nbits > 0 && "#bits must be positive");
 			bits = std::make_unique<unit[]>(unit_count(nbits));
 			if (value) {
 				set_all(true);

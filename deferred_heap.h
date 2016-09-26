@@ -85,7 +85,7 @@ namespace gcpp {
 				for (auto& t : p) {
 					dtors.push_back({
 						std::addressof(t),		// address
-						[](const void* x) { reinterpret_cast<const T*>(x)->~T(); }
+						[](const void* x) { static_cast<const T*>(x)->~T(); }
 					});							// dtor to invoke
 				}
 			}
