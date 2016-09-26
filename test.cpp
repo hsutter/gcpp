@@ -1,18 +1,18 @@
 
-/////////////////////////////////////////////////////////////////////////////// 
-// 
-// Copyright (c) 2016 Herb Sutter. All rights reserved. 
-// 
-// This code is licensed under the MIT License (MIT). 
-// 
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN 
-// THE SOFTWARE. 
-// 
+///////////////////////////////////////////////////////////////////////////////
+//
+// Copyright (c) 2016 Herb Sutter. All rights reserved.
+//
+// This code is licensed under the MIT License (MIT).
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+//
 ///////////////////////////////////////////////////////////////////////////////
 
 
@@ -84,21 +84,25 @@ void test_page() {
 	g.debug_print();
 
 	auto p1 = g.allocate<char>();
+	(void)p1;
 	g.debug_print();
 
 	auto p2 = g.allocate<double>();
+	(void)p2;
 	g.debug_print();
 
 	auto p3 = g.allocate<char>();
 	g.debug_print();
 
 	auto p4 = g.allocate<double>();
+	(void)p4;
 	g.debug_print();
 
 	g.deallocate(p3);
 	g.debug_print();
 
 	auto p5 = g.allocate<char>();
+	(void)p5;
 	g.debug_print();
 }
 
@@ -227,7 +231,7 @@ void test_deferred_allocator() {
 //----------------------------------------------------------------------------
 
 void test_deferred_allocator_set() {
-#ifndef __GNUC__
+#if !defined(__GLIBCXX__) && !defined(_LIBCPP_VERSION)
 	deferred_heap heap;
 
 	auto s = deferred_set<widget>(heap);

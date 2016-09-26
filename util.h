@@ -1,18 +1,18 @@
 
-/////////////////////////////////////////////////////////////////////////////// 
-// 
-// Copyright (c) 2016 Herb Sutter. All rights reserved. 
-// 
-// This code is licensed under the MIT License (MIT). 
-// 
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR 
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, 
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE 
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER 
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, 
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN 
-// THE SOFTWARE. 
-// 
+///////////////////////////////////////////////////////////////////////////////
+//
+// Copyright (c) 2016 Herb Sutter. All rights reserved.
+//
+// This code is licensed under the MIT License (MIT).
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+//
 ///////////////////////////////////////////////////////////////////////////////
 
 
@@ -26,10 +26,12 @@
 
 //	This project requires GSL, see: https://github.com/microsoft/gsl
 #include <gsl/gsl>
+#include <limits>
+#include <type_traits>
 
 namespace gcpp {
 
-	using byte = gsl::byte;
+	using gsl::byte;
 
 }
 
@@ -42,5 +44,15 @@ bool operator< (const Type& that) const { return compare3(that) <  0; } \
 bool operator<=(const Type& that) const { return compare3(that) <= 0; } \
 bool operator> (const Type& that) const { return compare3(that) >  0; } \
 bool operator>=(const Type& that) const { return compare3(that) >= 0; }
+
+//  Returns true iff value is within the range of values representable by (arithmetic) type Target
+template<class Target, class Value>
+constexpr bool in_representable_range(Value const& value) {
+	using C = std::common_type_t<Target, Value>;
+	auto const cvalue = static_cast<C>(value);
+	return cvalue <= static_cast<C>(std::numeric_limits<Target>::max()) &&
+		(!std::is_signed<C>::value || static_cast<C>(std::numeric_limits<Target>::min()) <= cvalue) &&
+		(C{} < cvalue) == (Value{} < value);
+}
 
 #endif
