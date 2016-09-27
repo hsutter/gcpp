@@ -25,6 +25,7 @@
 #include <memory>
 #include <algorithm>
 #include <type_traits>
+#include <iostream>
 
 namespace gcpp {
 
@@ -132,14 +133,13 @@ namespace gcpp {
 			const auto to_unit   = to   / bits_per_unit;
 			const auto to_mod    = to   % bits_per_unit;
 
-			const auto n_whole_units = to_unit - from_unit - 1;
 			auto data = bits.get() + from_unit;
 
 			// first set the remaining bits in the partial unit this range begins within
 			if (from_mod != 0) {
 				// set all bits less than from in a mask
 				auto mask = (unit(1) << from_mod) - 1;
-				if (n_whole_units < 0) {
+				if (from_unit == to_unit) {
 					 // set all bits in mask that are >= to as well
 					mask |= ~((unit(1) << to_mod) - 1);
 				}
@@ -151,7 +151,7 @@ namespace gcpp {
 					*data &= mask;
 				}
 
-				if (n_whole_units < 0) {
+				if (from_unit == to_unit) {
 					return;
 				}
 
@@ -159,7 +159,7 @@ namespace gcpp {
 			}
 
 			// then set whole units (makes a significant performance difference)
-			data = std::fill_n(data, n_whole_units, all_bits(value));
+			data = std::fill_n(data, bits.get() + to_unit - data, all_bits(value));
 
 			// then set the remaining bits in the partial unit this range ends within
 			if (to_mod != 0) {
@@ -174,6 +174,16 @@ namespace gcpp {
 				}
 			}
 		}
+
+		void debug_print() {
+			for (auto i = 0; i < this->size; ++i) {
+				std::cout << (get(i) ? "T" : "f");
+				if (i % 8 == 7) { std::cout << ' '; }
+				if (i % 64 == 63) { std::cout << '\n'; }
+			}
+			std::cout << "\n";
+		}
+
 	};
 
 	//	Future: Just set(from,to) is a performance improvement over vector<bool>,
