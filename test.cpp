@@ -393,10 +393,52 @@ void test_deferred_array() {
 }
 
 
+void test_bitflags() {
+	const int N = 100;	// picked so that we have 3 x 32-bit units + 1 partial unit,
+						// so we can exercise the boundary and internal unit cases
+
+	//	Test that we can correctly set any bit range [i,j)
+	for (auto i = 0; i < N; ++i) {
+		for (auto j = i; j < N; ++j) {
+			bitflags flags(100, false);
+			flags.set(i, j, true);
+			for (auto test = 0; test < N; ++test) {
+				assert(flags.get(test) == (i <= test && test < j));
+			}
+		}
+	}
+
+	//	Test that we can find a true bit set anywhere with any range
+	for (auto set = 0; set < N; ++set) {
+		bitflags flags(100, false);
+		flags.set(set, true);
+		for (auto i = 0; i <= set; ++i) {
+			for (auto j = i; j < N; ++j) {
+				assert(flags.find_next(i, j, true) == min(j,set));
+			}
+		}
+	}
+
+	//	Test that we can find a false bit set anywhere with any range
+	for (auto set = 0; set < N; ++set) {
+		bitflags flags(100, true);
+		flags.set(set, false);
+		for (auto i = 0; i <= set; ++i) {
+			for (auto j = i; j < N; ++j) {
+				assert(flags.find_next(i, j, false) == min(j, set));
+			}
+		}
+	}
+
+	//flags.debug_print();
+}
+
+
 int main() {
 	//test_page();
+	test_bitflags();
 
-	test_deferred_heap();
+	//test_deferred_heap();
 	//time_deferred_heap();
 
 	//test_deferred_allocator();

@@ -141,7 +141,7 @@ bool TestCase3() {
 	return Counter::count() == 4;
 }
 
-int main() {
+int test_graph() {
 	cout.setf(ios::boolalpha);
 
 	bool passed1 = TestCase1();

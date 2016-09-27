@@ -184,6 +184,80 @@ namespace gcpp {
 			std::cout << "\n";
 		}
 
+		//	Find next flag in positions [from,to) that is set to value
+		//	Returns index of next flag that is set to value, or "to" if none was found
+		//
+		int find_next(int from, int to, bool value) noexcept {
+			Expects(0 <= from && from <= to && to <= size && "bitflags find_next() out of range");
+
+			if (from == to) {
+				return to;
+			}
+
+			const auto from_unit = from / bits_per_unit;
+			const auto from_mod = from % bits_per_unit;
+			const auto to_unit = to / bits_per_unit;
+			const auto to_mod = to   % bits_per_unit;
+
+			auto data = bits.get() + from_unit;
+
+			// first test the remaining bits in the partial unit this range begins within
+			if (from_mod != 0) {
+				// mask all bits less than from
+				auto mask = (unit(1) << from_mod) - 1;
+				if (from_unit == to_unit) {
+					// mask all bits that are >= to as well
+					mask |= ~((unit(1) << to_mod) - 1);
+				}
+				mask = ~mask;	// now invert the mask to the bits we care about
+
+				if ((value && (*data & mask) != unit(0))		// looking for true and there's one in here
+					|| (!value && (~*data & mask) != unit(0))) {	// looking for false and there's one in here
+					while (get(from) != value) {
+						++from;
+					}
+					Ensures(from < to && "wait, we should have found the value in the first unit");
+					return from;
+				}
+
+				if (from_unit == to_unit) {
+					return to;
+				}
+
+				++data;
+			}
+
+			// then test whole units (makes a significant performance difference)
+			data = std::find_if(data, bits.get() + to_unit,
+				[=](unit u) { return value ? u != unit(0) : u != ~unit(0); });
+			if (data != bits.get() + to_unit) {
+				from = (data - bits.get()) * bits_per_unit;
+				while (get(from) != value) {
+					++from;
+				}
+				Ensures(from < to && "wait, we should have found the value in this unit");
+				return from;
+			}
+
+			// then test the remaining bits in the partial unit this range ends within
+			if (to_mod != 0) {
+				// mask all bits less than to
+				auto mask = (unit(1) << to_mod) - 1;
+
+				if ((value && (*data & mask) != unit(0))			// looking for true and there's one in here
+					|| (!value && (~*data & mask) != unit(0))) {	// looking for false and there's one in here
+					from = (data - bits.get()) * bits_per_unit;
+					while (get(from) != value) {
+						++from;
+					}
+					Ensures(from < to && "wait, we should have found the value in the last unit");
+					return from;
+				}
+			}
+
+			return to;
+		}
+
 	};
 
 	//	Future: Just set(from,to) is a performance improvement over vector<bool>,
