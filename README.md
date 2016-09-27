@@ -1,6 +1,6 @@
 # **gcpp**: Deferred and unordered destruction
 
-Herb Sutter -- Updated 2016-09-22
+Herb Sutter -- Updated 2016-09-26
 
 ## Motivation, goals, and disclaimers
 
@@ -292,7 +292,7 @@ Even in the worst case of a naïve non-concurrent collector that stops the world
 
 This personal project would be considerably weaker without input from a number of gracious experts who have been willing to share their time and experience. I would like to particularly thank the following people for their help:
 
-- Thanks to Casey Carter, Jonathan Caves, Gabriel Dos Reis, Howard Hinnant, Stephan T. Lavavej, and Neil MacIntosh for their feedback on the code and/or help with various detailed C++ language and standard library questions. These folks are world-class experts in the C++ language, the C++ standard (and soon-to-be standard) library, and/or the compile-time analysis of both. 
+- Thanks to Casey Carter, Jonathan Caves, Gabriel Dos Reis, Howard Hinnant, Thomas Koeppe, Stephan T. Lavavej, and Neil MacIntosh for their feedback on the code and/or help with various detailed C++ language and standard library questions. These folks are world-class experts in the C++ language, the C++ standard (and soon-to-be standard) library, and/or the compile-time analysis of both. 
 
 - Thanks to Hans Boehm, Pavel Curtis, Daniel Frampton, Kathryn S McKinley, and Mads Torgersen for their review and suggestions regarding the tracing GC parts. These folks grok garbage collection of all varieties as well as programming language design, and their deep experience has been invaluable.
 
