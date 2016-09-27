@@ -1216,10 +1216,16 @@ namespace gcpp {
 
 	inline
 	void destructors::debug_print() const {
-		std::cout << "\n  destructors size() is " << dtors.size() << "\n";
+		std::cout << "\n single object destructors size() is " << dtors.size() << "\n";
 		for (auto& d : dtors) {
 			std::cout << "    " << (void*)(d.p) << ", " << (void*)(d.destroy) << "\n";
 		}
+		
+		std::cout << "\n array destructors size() is " << arr_dtors.size() << "\n";
+		for (auto& arr : arr_dtors) {
+			std::cout << "    [" << (void*)(arr.begin) << ", " << (void*)(arr.end()) << "), " << (void*)(arr.destroy) << ", " << arr.count << ", " << arr.size << "\n";
+		}
+		
 		std::cout << "\n";
 	}
 
