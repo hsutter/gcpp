@@ -1082,7 +1082,9 @@ namespace gcpp {
 	inline
 	void deferred_heap::debug_print() const
 	{
-		std::cout << "\n*** heap snapshot [" << (void*)this << "] ************************************************\n\n";
+		std::cout << "\n*** heap snapshot [" << (void*)this << "] *** " 
+			<< pages.size() << " page" << (pages.size() != 1 ? "s *" : " **") 
+			<< "***********************************\n\n";
 		for (auto& pg : pages) {
 			pg.page.debug_print();
 			std::cout << "\n  this page's deferred_ptrs.size() is " << pg.deferred_ptrs.size() << "\n";
