@@ -25,7 +25,7 @@
 #endif
 
 //	This project requires GSL, see: https://github.com/microsoft/gsl
-#include <gsl/gsl>
+#include "gsl/gsl"
 #include <limits>
 #include <type_traits>
 
@@ -49,10 +49,9 @@ bool operator>=(const Type& that) const { return compare3(that) >= 0; }
 template<class Target, class Value>
 constexpr bool in_representable_range(Value const& value) {
 	using C = std::common_type_t<Target, Value>;
-	auto const cvalue = static_cast<C>(value);
-	return cvalue <= static_cast<C>(std::numeric_limits<Target>::max()) &&
-		(!std::is_signed<C>::value || static_cast<C>(std::numeric_limits<Target>::min()) <= cvalue) &&
-		(C{} < cvalue) == (Value{} < value);
+	return static_cast<C>(value) <= static_cast<C>(std::numeric_limits<Target>::max()) &&
+		(!std::is_signed<C>::value || static_cast<C>(std::numeric_limits<Target>::min()) <= static_cast<C>(value)) &&
+		(C{} < static_cast<C>(value)) == (Value{} < value);
 }
 
 #endif
