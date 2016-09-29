@@ -54,7 +54,7 @@ See also [additional uses of deferred_allocator](#speculative-stl-iterator-safet
 
 Here is a `Graph` type that has its own local heap shared by all `Graph` objects:
 
-~~~
+~~~cpp
 // possibly-cyclic N-ary Graph, one heap for all graph nodes
 
 class Graph {
@@ -77,7 +77,7 @@ public:
 
 Here is a variation where each `Graph` object has its own private local heap: 
 
-~~~
+~~~cpp
 // possibly-cyclic N-ary Graph, one heap per graph object
 
 class Graph {
