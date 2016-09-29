@@ -259,6 +259,35 @@ Even in the worst case of a naïve non-concurrent collector that stops the world
 
 # Implementation notes
 
+## Storing destructors
+
+`deferred_heap::make<T>` stores a single object's destructor as two raw pointers:
+
+~~~cpp
+struct destructor {
+    const void* p;               // raw pointer to the object
+    void(*destroy)(const void*); // raw pointer to a type-erased destructor function
+};
+~~~
+
+Later we can just invoke `d.destroy(d.p)` to correctly clean up the complete object, even if the last `deferred_ptr` to it is not a `deferred_ptr<T>` but a pointer to a subobject (`deferred_ptr<BaseClassOfT>` or `deferred_ptr<DataMemberOfT>`).
+
+The code conveniently gets a raw function pointer to the destructor by using a lambda:
+
+~~~cpp
+// Called indirectly from deferred_heap::make<T>.
+// Here, t is a T&.
+dtors.push_back({
+    std::addressof(t),                                    // address of T object
+    [](const void* x) { static_cast<const T*>(x)->~T(); } // T destructor to invoke
+});
+~~~
+
+One line removes the type, and the other line adds it back. The lambda gives a handy way to do type erasure -- because we know `T` here, we just write a lambda that performs the correct cast back to invoke the correct `T` destructor.
+
+A non-capturing lambda has no state, so it can be used as a plain function. So for each distinct type `T` that this is instantiated with, compiling this code generates one `T`-specific function (on demand at compile time, globally unique) and we store that function's address. The function itself is efficient: Depending on the optimization level, the lambda is typically generated as either a one-instruction wrapper function (just a single `jmp` to the actual destructor) or as a copy of the destructor if the destructor is inlined (no run-time overhead at all, just another inline copy of the destructor in the binary if it's generally being inlined anyway).
+
+
 ## deferred_allocator
 
 `deferred_allocator` appears to work with unmodified current STL containers, but I'm still exploring how well and exploring the limits.
