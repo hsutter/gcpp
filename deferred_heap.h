@@ -876,7 +876,7 @@ namespace gcpp {
 
 		//	=====================================================================
 		//  === BEGIN REENTRANCY-SAFE: ensure no in-progress use of private state
-		::new (p) T{ std::forward<Args>(args)... };
+		::new (static_cast<void*>(p.get())) T{ std::forward<Args>(args)... };
 		//  === END REENTRANCY-SAFE: reload any stored copies of private state
 		//	=====================================================================
 
@@ -898,7 +898,14 @@ namespace gcpp {
 		for (auto i = 0; i < n; ++i) {
 			//	=====================================================================
 			//  === BEGIN REENTRANCY-SAFE: ensure no in-progress use of private state
-			::new (p) T{};
+			try {
+				::new (static_cast<void*>(p.get() + i)) T{};
+			} catch(...) {
+				while (i-- > 0) {
+					(p.get() + i)->~T();
+				}
+				throw;
+			}
 			//  === END REENTRANCY-SAFE: reload any stored copies of private state
 			//	=====================================================================
 		}
@@ -1041,7 +1048,7 @@ namespace gcpp {
 
 					//	find the end of the allocation
 					auto end_i = i + 1;
-					auto end = pg.page.location_info(pg.page.locations()).pointer;
+					auto end = [](auto s) { return s.data() + s.size(); }(pg.page.extent());
 					for (; end_i < pg.page.locations(); ++end_i) {
 						auto info = pg.page.location_info(end_i);
 						if (info.is_start) {
@@ -1051,7 +1058,7 @@ namespace gcpp {
 					}
 
 					// call the destructors for objects in this range
-					destroy_objects({ start.pointer, end - start.pointer });
+					destroy_objects({ start.pointer, end });
 
 					// and then deallocate the raw storage
 					pg.page.deallocate(start.pointer);
@@ -1062,7 +1069,7 @@ namespace gcpp {
 		//	5. finally, drop all now-unused pages
 		//
 		auto empty = pages.begin();
-		while ((empty = std::find_if(pages.begin(), pages.end(), 
+		while ((empty = std::find_if(pages.begin(), pages.end(),
 							[](const auto& pg) { return pg.page.is_empty(); }))
 				!= pages.end()) {
 			Ensures(empty->deferred_ptrs.empty() && "page with no allocations still has deferred_ptrs");
@@ -1082,8 +1089,8 @@ namespace gcpp {
 	inline
 	void deferred_heap::debug_print() const
 	{
-		std::cout << "\n*** heap snapshot [" << (void*)this << "] *** " 
-			<< pages.size() << " page" << (pages.size() != 1 ? "s *" : " **") 
+		std::cout << "\n*** heap snapshot [" << (void*)this << "] *** "
+			<< pages.size() << " page" << (pages.size() != 1 ? "s *" : " **")
 			<< "***********************************\n\n";
 		for (auto& pg : pages) {
 			pg.page.debug_print();
