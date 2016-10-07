@@ -27,6 +27,8 @@
 *.exe
 *.out
 *.app
+test_basic
+test_graph
 
 # VS artifacts
 *.sln
@@ -34,6 +36,12 @@
 *.vcxproj
 *.filters
 *.opendb
+
+# CMake artifacts
+CMakeCache.txt
+CmakeFiles/
+Makefile
+*.cmake
 
 # Subdirectories
 */
