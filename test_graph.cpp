@@ -141,6 +141,24 @@ bool TestCase3() {
 	return Counter::count() == 4;
 }
 
+bool TestCase4() {
+    MyGraph g;
+    {
+        auto a = MyGraph::MakeNode();
+        g.SetRoot(a);
+        auto b = MyGraph::MakeNode();
+        a->AddChild(b);
+        auto c = MyGraph::MakeNode();
+        b->AddChild(c);
+        auto d = MyGraph::MakeNode();
+        b->AddChild(d);
+        d->AddChild(b);
+        d->RemoveChild(b);
+    }
+    g.ShrinkToFit();
+    return Counter::count() == 4;
+}
+
 int main() {
 	cout.setf(ios::boolalpha);
 
@@ -152,6 +170,9 @@ int main() {
 
 	bool passed3 = TestCase3();
 	cout << passed3 << endl;
+
+	bool passed4 = TestCase4();
+	cout << passed4 << endl;
 
 	return 0;
 }
