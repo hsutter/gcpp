@@ -1,6 +1,6 @@
 # **gcpp**: Deferred and unordered destruction
 
-Herb Sutter -- Updated 2016-09-26
+Herb Sutter -- Updated 2016-10-16
 
 ## Motivation, goals, and disclaimers
 
@@ -8,7 +8,7 @@ gcpp is a personal project to try an experiment: Can we take the deferred and un
 
 This is a demo of a potential additional fallback option for the rare cases where `unique_ptr` and `shared_ptr` aren't quite enough, notably when you have objects that refer to each other in local owning cycles, or when you need to defer destructor execution to meet real-time deadlines or to bound destructor stack cost. The goal is to illustrate ideas that others can draw from, that you may find useful even if you never use types like the ones below but just continue to use existing smart pointers and write your destructor-deferral and tracing code by hand.
 
-Disclaimers: This is a demo, not a production quality library. It is not thoroughly tested; bug reports are welcome. As of this writing, I have only tried it on one compiler and STL implementation, Visual Studio 2015 Update 3 (`deferred_allocator` does not work on Update 2 which had only partial support for C++11 allocators with fancy pointers); if you have success with others, please report it by opening an Issue to update this README. See also the FAQ ["So deferred_heap and deferred_ptr have no disadvantages?"](#q-so-deferred_heap-and-deferred_ptr-have-no-disadvantages). And please see the [Acknowledgments](#acknowledgments).
+Disclaimers: This is a demo, not a production quality library; bug reports are welcome. As of this writing, it works on Clang/libc++ 3.9 or later and Visual Studio 2015 Update 3 or later; if you have success with others, please report it by opening an Issue to update this README. See also the FAQ ["So deferred_heap and deferred_ptr have no disadvantages?"](#q-so-deferred_heap-and-deferred_ptr-have-no-disadvantages). And please see the [Acknowledgments](#acknowledgments).
 
 ## Overview
 
@@ -99,7 +99,7 @@ public:
 };
 ~~~
 
-Note that `deferred_allocator` requires C++11 allocator support for fancy pointers; on MSVC, it requires Visual Studio 2015 Update 3 or later.
+Note that `deferred_allocator` requires C++11 allocator support for fancy pointers; see [deferred_allocator implementation notes](#deferred-allocator-notes).
 
 ## Target use cases
 
@@ -288,9 +288,14 @@ One line removes the type, and the other line adds it back. The lambda gives a h
 A non-capturing lambda has no state, so it can be used as a plain function. So for each distinct type `T` that this is instantiated with, compiling this code generates one `T`-specific function (on demand at compile time, globally unique) and we store that function's address. The function itself is efficient: Depending on the optimization level, the lambda is typically generated as either a one-instruction wrapper function (just a single `jmp` to the actual destructor) or as a copy of the destructor if the destructor is inlined (no run-time overhead at all, just another inline copy of the destructor in the binary if it's generally being inlined anyway).
 
 
-## deferred_allocator
+## deferred_allocator notes
 
-`deferred_allocator` appears to work with unmodified current STL containers, but I'm still exploring how well and exploring the limits.
+`deferred_allocator` appears to work with unmodified C++11-conforming STL containers.
+
+- It requires good support for C++11 fancy pointers.
+    - On Microsoft VC++, it requires Visual Studio 2015 Update 3 or later. Update 2 in known to have  inadequate fancy pointer support.
+    - On Clang/libc++, it requires version 3.9 or later. It might work on 3.7 or 3.8 which I didn't test, but 3.6 is known to have inadequate fancy pointer support (fails to call `construct()`).
+    - I haven't found a version of GCC that supports it yet.
 
 - `deallocate()` is a no-op, but performs checking in debug builds. It does not need to actually deallocate because memory-safe deallocation will happen at the next `.collect()` after the memory becomes unreachable.
 

@@ -440,7 +440,7 @@ void test_bitflags() {
 
 int main() {
 	//test_page();
-	test_bitflags();
+	//test_bitflags();
 
 	//test_deferred_heap();
 	//time_deferred_heap();
@@ -450,7 +450,7 @@ int main() {
 	//test_deferred_allocator_set();
 	//time_deferred_allocator_set();
 
-	//test_deferred_allocator_vector();
+	test_deferred_allocator_vector();
 	//time_deferred_allocator_vector();
 
 	//test_deferred_array();

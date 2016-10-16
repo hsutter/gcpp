@@ -917,7 +917,7 @@ namespace gcpp {
 	template<class T>
 	void deferred_heap::destroy(gsl::not_null<T*> p) noexcept
 	{
-		Expects((p == nullptr || dtors.is_stored(p))
+		Expects(dtors.is_stored(p)
 			&& "attempt to destroy an object whose destructor is not registered");
 	}
 

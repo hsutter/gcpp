@@ -30,13 +30,6 @@
 
 namespace gcpp {
 
-//private:
-	//namespace detail {
-	//	deferred_heap& global_deferred_heap();
-	//}
-
-//public:
-
 	//----------------------------------------------------------------------------
 	//
 	//	deferred_allocator - wrap up global_deferred_heap() as a C++14 allocator, with thanks to
