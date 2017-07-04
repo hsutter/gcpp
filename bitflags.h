@@ -36,13 +36,15 @@ namespace gcpp {
 	//----------------------------------------------------------------------------
 
 	class bitflags {
+	public:
 		using unit = unsigned int;
 		static_assert(std::is_unsigned<unit>::value, "unit must be an unsigned integral type.");
 
+		static constexpr auto bits_per_unit = static_cast<int>(sizeof(unit) * CHAR_BIT);
+
+	private:
 		std::unique_ptr<unit[]> bits;
 		const int size;
-
-		static constexpr auto bits_per_unit = static_cast<int>(sizeof(unit) * CHAR_BIT);
 
 		//  Return a unit with all bits set if "set" is true, or all bits cleared otherwise.
 		//
@@ -96,9 +98,12 @@ namespace gcpp {
 		//	Test whether all bits are false
 		//
 		bool all_false() const noexcept {
-			auto all_false = [](unit u) { return u == unit(0); };
-			return std::all_of(bits.get(), bits.get() + unit_count(size) - 1, all_false)
-				&& all_false(*(bits.get() + unit_count(size) - 1) & (bit_mask(size) - 1));
+			auto const all_false = [](unit const u) { return u == unit(0); };
+			if (!std::all_of(bits.get(), bits.get() + unit_count(size) - 1, all_false)) {
+				return false;
+			}
+			auto const mask = size % bits_per_unit == 0 ? unit(0) : bit_mask(size);
+			return all_false(*(bits.get() + unit_count(size) - 1) & (mask - 1));
 		}
 
 		//	Set flag value at position

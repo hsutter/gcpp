@@ -396,7 +396,6 @@ void test_deferred_array() {
 
 }
 
-
 void test_bitflags() {
 	const int N = 100;	// picked so that we have 3 x 32-bit units + 1 partial unit,
 						// so we can exercise the boundary and internal unit cases
@@ -404,7 +403,7 @@ void test_bitflags() {
 	//	Test that we can correctly set any bit range [i,j)
 	for (auto i = 0; i < N; ++i) {
 		for (auto j = i; j < N; ++j) {
-			bitflags flags(100, false);
+			bitflags flags(N, false);
 			flags.set(i, j, true);
 			for (auto test = 0; test < N; ++test) {
 				assert(flags.get(test) == (i <= test && test < j));
@@ -414,7 +413,7 @@ void test_bitflags() {
 
 	//	Test that we can find a true bit set anywhere with any range
 	for (auto set = 0; set < N; ++set) {
-		bitflags flags(100, false);
+		bitflags flags(N, false);
 		flags.set(set, true);
 		for (auto i = 0; i <= set; ++i) {
 			for (auto j = i; j < N; ++j) {
@@ -425,7 +424,7 @@ void test_bitflags() {
 
 	//	Test that we can find a false bit set anywhere with any range
 	for (auto set = 0; set < N; ++set) {
-		bitflags flags(100, true);
+		bitflags flags(N, true);
 		flags.set(set, false);
 		for (auto i = 0; i <= set; ++i) {
 			for (auto j = i; j < N; ++j) {
@@ -434,13 +433,22 @@ void test_bitflags() {
 		}
 	}
 
+	{
+		// Regression test for #23:
+		// Test that all_false observes the bits in the last unit
+		bitflags flags(bitflags::bits_per_unit, false);
+		assert(flags.all_false());
+		flags.set(bitflags::bits_per_unit - 1, true);
+		assert(!flags.all_false());
+	}
+
 	//flags.debug_print();
 }
 
 
 int main() {
 	//test_page();
-	//test_bitflags();
+	test_bitflags();
 
 	//test_deferred_heap();
 	//time_deferred_heap();
@@ -457,7 +465,5 @@ int main() {
 
 	//heap.collect();
 	//heap.debug_print();
-
-	return 0;
 }
 
