@@ -1,8 +1,8 @@
-# **gcpp**: Deferred and unordered destruction
-
 > You can find a talk that describes this library here:
 >    - [Video: "Leak-Freedom in C++... By Default" (CppCon 2016)](https://www.youtube.com/watch?v=JfmTagWcqoE)
 >    - [PDF slides](https://github.com/CppCon/CppCon2016/blob/master/Presentations/Lifetime%20Safety%20By%20Default%20-%20Making%20Code%20Leak-Free%20by%20Construction/Lifetime%20Safety%20By%20Default%20-%20Making%20Code%20Leak-Free%20by%20Construction%20-%20Herb%20Sutter%20-%20CppCon%202016.pdf)
+
+# **gcpp**: Deferred and unordered destruction
 
 Herb Sutter -- Updated 2016-10-16
 
