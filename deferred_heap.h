@@ -64,8 +64,38 @@ namespace gcpp {
 			const void* p;
 			void(*destroy)(const void*);
 		};
-		std::vector<destructor>	dtors;
 
+		struct array_destructor
+		{
+			const void* begin;
+			void (*destroy)(const void*);
+			size_t count;
+			size_t size;
+
+			auto end() const
+			{
+				return reinterpret_cast<const void*>(reinterpret_cast<const byte*>(begin) + count * size);
+			}
+		};
+
+		std::vector<destructor>	dtors;
+		std::vector<array_destructor> arr_dtors;
+
+		static std::pair<array_destructor, array_destructor> 
+		split_array_destructor(const array_destructor& old_head, size_t new_head_cnt) noexcept
+		{
+			array_destructor head = old_head;
+
+			array_destructor tail;
+			tail.count = head.count - new_head_cnt;
+			tail.size = head.size;
+			tail.destroy = head.destroy;
+			tail.begin = reinterpret_cast<const void*>(reinterpret_cast<const byte*>(old_head.begin) + new_head_cnt);
+
+			head.count = new_head_cnt;
+
+			return std::make_pair(head, tail);
+		}
 	public:
 		//	Store the destructor, if it's not trivial
 		//
@@ -82,11 +112,34 @@ namespace gcpp {
 				//	++count, similarly when removing a destructor from the end,
 				//	or break apart an array_destructor when removing a
 				//	destructor from the middle
-				for (auto& t : p) {
+
+				auto array_before = std::find_if(arr_dtors.begin(), arr_dtors.end(), [&p](const auto& arr)
+				{
+					return arr.size == sizeof(T) && arr.end() == reinterpret_cast<const void*>(&(p[0]));
+				});
+
+				if (array_before != arr_dtors.end())
+				{
+					std::cout << "ahoy!\n";
+					array_before->count += p.size();
+					return;
+				}
+
+				if (p.size() == 1)
+				{
 					dtors.push_back({
-						std::addressof(t),		// address
-						[](const void* x) { static_cast<const T*>(x)->~T(); }
-					});							// dtor to invoke
+						std::addressof(p[0]),
+						[](const void* x) { static_cast<const T*>(x)->~T(); }						
+					});
+				}
+				else
+				{
+					arr_dtors.push_back({
+						std::addressof(p[0]),		// address
+						[](const void* x) { static_cast<const T*>(x)->~T(); },
+						static_cast<size_t>(p.size()),
+						sizeof(T)
+					});
 				}
 			}
 		}
@@ -97,7 +150,9 @@ namespace gcpp {
 		bool is_stored(gsl::not_null<T*> p) const noexcept {
 			return std::is_trivially_destructible<T>::value
 				|| std::any_of(dtors.begin(), dtors.end(),
-					[=](auto x) { return x.p == p.get(); });
+					[=](auto x) { return x.p == p.get(); })
+				|| std::any_of(arr_dtors.begin(), arr_dtors.end(),
+					[=](auto arr) { return arr.begin <= p.get() && p.get() < arr.end(); });
 		}
 
 		//	Run all the destructors and clear the list
@@ -106,7 +161,16 @@ namespace gcpp {
 			for (auto& d : dtors) {
 				d.destroy(d.p);	// call object's destructor
 			}
+			for (auto& arr : arr_dtors)
+			{
+				auto begin = reinterpret_cast<const byte*>(arr.begin);
+				for (auto i = begin; i < arr.end(); i += arr.size)
+				{
+					arr.destroy(i);
+				}
+			}
 			dtors.clear();
+			arr_dtors.clear();
 		}
 
 		//	Run all the destructors for objects in [begin,end)
@@ -121,6 +185,7 @@ namespace gcpp {
 			//
 			struct cleanup_t {
 				std::vector<destructor> to_destroy;
+				std::vector<array_destructor> arr_to_destroy;
 
 				// ensure the locally saved destructors are run even if an exception is thrown
 				~cleanup_t() {
@@ -131,6 +196,15 @@ namespace gcpp {
 						//  === END REENTRANCY-SAFE: reload any stored copies of private state
 						//	=====================================================================
 					}
+
+					for (auto& arr : arr_to_destroy)
+					{
+						auto begin = reinterpret_cast<const byte*>(arr.begin);
+						for (auto i = begin; i < arr.end(); i += arr.size)
+						{
+							arr.destroy(i);
+						}
+					}
 				}
 			} cleanup;
 
@@ -140,7 +214,77 @@ namespace gcpp {
 				[=](destructor const& dtor) { return lo <= dtor.p && dtor.p < hi; }).first;
 			dtors.erase(it, dtors.end());
 
-			return !cleanup.to_destroy.empty();
+			// cannot use unstable_remove_copy_if with array_destructor since
+			// there may be leftover destructors in the array_destructor
+			for (auto& arr : arr_dtors)
+			{
+				auto beg = reinterpret_cast<const byte*>(arr.begin);
+				auto end = reinterpret_cast<const byte*>(arr.end());
+
+				if (lo >= beg && hi < end) 
+				{
+					std::cout << "hm?\n";
+					// whole range is inside this array_destructor object
+					// [D, ..., D, R, ..., R, D, ..., D]
+
+					/*
+						we'll partition the current array into 3, since the range
+						may be just in the center of the array
+					*/
+
+					auto part1_cnt = (lo - beg) / arr.size;
+					auto part2_cnt = (end - hi) / arr.size + 1;
+
+					auto partition1 = split_array_destructor(arr, part1_cnt);
+					auto partition2 = split_array_destructor(partition1.second, partition1.second.count - part2_cnt);
+					
+					if (part1_cnt && part2_cnt)
+					{
+						// since neither of the remaining parts will be empty,
+						// we have to reserve space for the second remaining part before
+						// adding the to-be-destroyed partition to the cleanup object
+						arr_dtors.push_back({nullptr, nullptr, 0, 0});
+					}
+					
+					cleanup.arr_to_destroy.push_back(partition2.first);
+
+					arr = partition1.first;							
+					if (part2_cnt)
+					{
+						part1_cnt ? arr_dtors.back() : arr = partition2.second;
+					}
+				}
+				else if (lo < beg && beg < hi && hi < end)
+				{
+					// tail of the range is inside this array_destructor object
+					// [R, ..., R, D, ..., D]
+					
+					auto inside_cnt = (hi - beg) / arr.size;
+					auto parts = split_array_destructor(arr, inside_cnt);
+					cleanup.arr_to_destroy.push_back(parts.first);
+					arr = parts.second; // we'll destroy the objects in the head
+										// instead of first erasing arr and push_back'ing tail to arr_dtors
+										// just set arr to tail
+				}
+				else if (lo >= beg && lo < end && hi > end)
+				{
+					// head of the range is inside this array_destructor object
+					// [D, ..., D, R, ..., R]
+					
+					auto inside_cnt = (end - lo) / arr.size;
+					auto parts = split_array_destructor(arr, arr.count - inside_cnt);
+					cleanup.arr_to_destroy.push_back(parts.second);
+					arr = parts.first;  // we'll destroy the objects in the tail
+										// instead of first erasing arr and push_back'ing head to arr_dtors
+										// just set arr to head
+				}
+			}
+			
+			arr_dtors.erase(std::remove_if(arr_dtors.begin(), arr_dtors.end(), [](auto& arr) {
+				return arr.count == 0;
+			}), arr_dtors.end());
+
+			return !(cleanup.to_destroy.empty() && cleanup.arr_to_destroy.empty());
 		}
 
 		void debug_print() const;
@@ -1079,10 +1223,16 @@ namespace gcpp {
 
 	inline
 	void destructors::debug_print() const {
-		std::cout << "\n  destructors size() is " << dtors.size() << "\n";
+		std::cout << "\n single object destructors size() is " << dtors.size() << "\n";
 		for (auto& d : dtors) {
 			std::cout << "    " << (void*)(d.p) << ", " << (void*)(d.destroy) << "\n";
 		}
+		
+		std::cout << "\n array destructors size() is " << arr_dtors.size() << "\n";
+		for (auto& arr : arr_dtors) {
+			std::cout << "    [" << (void*)(arr.begin) << ", " << (void*)(arr.end()) << "), " << (void*)(arr.destroy) << ", " << arr.count << ", " << arr.size << "\n";
+		}
+		
 		std::cout << "\n";
 	}
 
